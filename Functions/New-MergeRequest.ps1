@@ -18,17 +18,19 @@ function New-MergeRequest {
 	}
 
 	$TemplateContent = Get-Content $TemplatePath -Raw
-	$FinalDescription = $TemplateContent -replace "%{issue_id}", "#$IssueNumber"
-	$FinalDescription = $FinalDescription -replace "(?s)### Environment.*?(?=## Checklist)", ""
-	$checklistItemsToRemove = @(
+	$textToRemove = @(
+		"%{issue_id}",
+		"(?s)### Environment.*?(?=## Checklist)",
 		"- \[ \] Does it run on all platforms \(web/iOS/Android\)\?\n",
 		"- \[ \] Have all static strings been translated\?\n",
-		"\(except screens\)"
+		"\(except screens\)",
+		"\n.*source_branch.*\n\n"
 	)
-
-	foreach ($item in $checklistItemsToRemove) {
+	$FinalDescription = $TemplateContent
+	foreach ($item in $textToRemove) {
 		$FinalDescription = $FinalDescription -replace $item, ""
 	}
+	$FinalDescription = $FinalDescription -replace "%{issue_id}", "#$IssueNumber"
 
 	if ($Description) {
 		$FinalDescription = $FinalDescription.Replace("Enter a brief description of the changes introduced by this merge request.", $Description)
