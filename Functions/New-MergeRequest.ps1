@@ -2,6 +2,7 @@ function New-MergeRequest {
 	[CmdletBinding(SupportsShouldProcess = $true)]
 	param(
 		[int]$IssueNumber,
+		[string]$Title = "",
 		[string]$TemplatePath = ".gitlab/merge_request_templates/Default.md",
 		[string]$Description = "",
 		[string]$HowToTest = ""
@@ -38,6 +39,12 @@ function New-MergeRequest {
 	}
 
 
+	if (-not $Title) {
+		$IssueJson = glab issue view $IssueNumber --output=json | ConvertFrom-Json
+		$Title = $IssueJson.title
+	}
+	$FormattedTitle = "[#${IssueNumber}] $Title"
+
 	$glabArgs = @(
 		"mr",
 		"create",
@@ -48,6 +55,8 @@ function New-MergeRequest {
 		"--draft",
 		"--remove-source-branch",
 		"--assignee rick.diaz"
+		"--title",
+		"`"$FormattedTitle`""
 		"--description",
 		"`"$FinalDescription`""
 	)
