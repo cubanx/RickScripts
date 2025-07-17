@@ -15,11 +15,12 @@
         'Remove-LocalBranchesThatAreMerged',
         'Clear-NodeModules',
         'Open-ProjectFolder',
-        'New-MergeRequest', 'Get-GitStash'
+        'New-MergeRequest', 'Get-GitStash',
+        'Remove-HistoryItem'
     )
     
     # Aliases to export from this module
-    AliasesToExport = @('sb', 'smr', 'rlb', 'cnm', 'opf', 'nmr', 'ggs')
+    AliasesToExport = @('sb', 'smr', 'rlb', 'cnm', 'opf', 'nmr', 'ggs', 'rhi')
     
     # Variables to export from this module
     VariablesToExport = @('mem', 'gl', 'pro', 'auth', 'petl')
