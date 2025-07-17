@@ -5,10 +5,10 @@ foreach ($File in $FunctionFiles) {
 }
 
 # Export functions
-Export-ModuleMember -Function Switch-Branch, Switch-MergeRequest, Remove-LocalBranchesThatAreMerged, Clear-NodeModules, Open-ProjectFolder, New-MergeRequest, Get-GitStash, Remove-HistoryItem
+Export-ModuleMember -Function Switch-Branch, Switch-MergeRequest, Remove-LocalBranchesThatAreMerged, Clear-NodeModules, Open-ProjectFolder, New-MergeRequest, Get-GitStash, Remove-HistoryItem, Remove-HistoryDuplicates
 
 # Export aliases
-Export-ModuleMember -Alias sb, smr, rlb, cnm, opf, nmr, ggs, rhi
+Export-ModuleMember -Alias sb, smr, rlb, cnm, opf, nmr, ggs, rhi, rhd
 
 # Export global variables for package filters
 $global:mem = "--filter=@world50/member-app"
