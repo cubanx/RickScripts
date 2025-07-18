@@ -17,11 +17,12 @@
         'Open-ProjectFolder',
         'New-MergeRequest', 'Get-GitStash',
         'Remove-HistoryItem',
-        'Remove-HistoryDuplicates'
+        'Remove-HistoryDuplicates',
+        'Move-IssueState'
     )
     
     # Aliases to export from this module
-    AliasesToExport = @('sb', 'smr', 'rlb', 'cnm', 'opf', 'nmr', 'ggs', 'rhi', 'rhd')
+    AliasesToExport = @('sb', 'smr', 'rlb', 'cnm', 'opf', 'nmr', 'ggs', 'rhi', 'rhd', 'mis')
     
     # Variables to export from this module
     VariablesToExport = @('mem', 'gl', 'pro', 'auth', 'petl')
