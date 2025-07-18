@@ -1,5 +1,17 @@
 function Switch-MergeRequest {
-	$mr = glab mr list --output json | jq -r '.[] | "\(.iid) \(.title)"' | fzf | ForEach-Object { ($_ -split ' ')[0] }
+	param(
+		[string[]]$Labels = $env:W50_MERGE_REQUEST_LABELS
+	)
+	
+	$glabCmd = "glab mr list --output json"
+	if ($Labels) {
+		$labelFilter = $Labels -join ","
+		$glabCmd += " --label `"$labelFilter`""
+	}
+	
+	$jsonOutput = Invoke-Expression $glabCmd
+	$mrList = $jsonOutput | ConvertFrom-Json
+	$mr = $mrList | ForEach-Object { "$($_.iid) $($_.title)" } | fzf | ForEach-Object { ($_ -split ' ')[0] }
 
 	if ($mr) {
 		Write-Host "✅ Switching to merge request $mr" -ForegroundColor Green
