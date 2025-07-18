@@ -55,6 +55,10 @@ function Remove-HistoryItem {
         # Write the updated history back to file
         $newHistory | Set-Content $historyFile -Encoding UTF8
         
+        # Reload the history file in the current session
+        [Microsoft.PowerShell.PSConsoleReadLine]::ClearHistory()
+        (Get-Content (Get-PSReadLineOption).HistorySavePath) -split "[^`r]`r?`n" | ForEach-Object { [Microsoft.PowerShell.PSConsoleReadLine]::AddToHistory($_) }
+        
         Write-Output "Deleted $($commandsToDelete.Count) items from history"
         Write-Output "Remaining items: $($newHistory.Count)"
     }
