@@ -111,7 +111,29 @@ move_issue_state() {
         glab_args+=("--unlabel" "$current_state_label")
     fi
     
-    glab_args+=("--label" "$new_label")
+    labels_to_add=("$new_label")
+    
+    if [[ "$new_state" == "AwaitingReview" ]]; then
+        labels_to_add+=("Needs Engineering Approval" "Ready for QA")
+    fi
+    
+    existing_non_state_labels=()
+    while IFS= read -r label; do
+        is_state_label=false
+        for state_label in "${all_state_labels[@]}"; do
+            if [[ "$label" == "$state_label" ]]; then
+                is_state_label=true
+                break
+            fi
+        done
+        if [[ "$is_state_label" == false && -n "$label" ]]; then
+            existing_non_state_labels+=("$label")
+        fi
+    done <<< "$current_labels"
+    
+    for label in "${existing_non_state_labels[@]}" "${labels_to_add[@]}"; do
+        glab_args+=("--label" "$label")
+    done
     
     command_string="glab ${glab_args[*]}"
     [[ "$debug_mode" == true ]] && echo "Command to execute: $command_string" >&2
