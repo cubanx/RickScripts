@@ -60,8 +60,20 @@ function Move-IssueState {
         $glabArgs += $currentStateLabel
     }
     
-    $glabArgs += "--label"
-    $glabArgs += $newLabel
+    $labelsToAdd = @($newLabel)
+    
+    if ($NewState -eq "AwaitingReview") {
+        $labelsToAdd += "Needs Engineering Approval"
+        $labelsToAdd += "Ready for QA"
+    }
+    
+    $existingNonStateLabels = $currentLabels | Where-Object { $_ -notin $allStateLabels }
+    $allLabelsToSet = $existingNonStateLabels + $labelsToAdd
+    
+    foreach ($label in $allLabelsToSet) {
+        $glabArgs += "--label"
+        $glabArgs += $label
+    }
     
     $commandString = "glab " + ($glabArgs -join " ")
     
