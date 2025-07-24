@@ -1,11 +1,31 @@
+. $PSScriptRoot\Switch-MergeRequest.Labels.ps1
+
 function Switch-MergeRequest {
 	param(
-		[string[]]$Labels = $env:W50_MERGE_REQUEST_LABELS
+		[string[]]$SetProjectForPath,
+		[switch]$ResetProjectForPath
 	)
 	
+	$currentFolder = Split-Path -Leaf (Get-Location)
+	
+	if ($SetProjectForPath) {
+		Set-ProjectLabels -Labels $SetProjectForPath
+		Write-Host "✅ Set labels for folder '$currentFolder': $($SetProjectForPath -join ', ')" -ForegroundColor Green
+	}
+	
+	if ($ResetProjectForPath) {
+		Remove-ProjectLabels
+		Write-Host "✅ Cleared labels for folder '$currentFolder'" -ForegroundColor Green
+	}
+	
+	$labels = Get-ProjectLabels
+	if (!$labels) {
+		$labels = $env:W50_MERGE_REQUEST_LABELS
+	}
+	
 	$glabCmd = "glab mr list --output json"
-	if ($Labels) {
-		$labelFilter = $Labels -join ","
+	if ($labels) {
+		$labelFilter = $labels -join ","
 		$glabCmd += " --label `"$labelFilter`""
 	}
 	
