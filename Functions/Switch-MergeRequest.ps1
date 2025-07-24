@@ -19,9 +19,6 @@ function Switch-MergeRequest {
 	}
 	
 	$labels = Get-ProjectLabels
-	if (!$labels) {
-		$labels = $env:W50_MERGE_REQUEST_LABELS
-	}
 	
 	$glabCmd = "glab mr list --output json"
 	if ($labels) {

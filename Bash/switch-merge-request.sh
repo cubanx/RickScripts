@@ -96,9 +96,6 @@ switch_merge_request() {
     
     local labels
     labels=$(get_project_labels | sed 's/,$//')
-    if [[ -z "$labels" ]]; then
-        labels="${W50_MERGE_REQUEST_LABELS}"
-    fi
     
     echo "Fetching merge requests..."
     
