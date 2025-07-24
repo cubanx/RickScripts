@@ -2,7 +2,6 @@ function Remove-HistoryItem {
     [CmdletBinding(SupportsShouldProcess = $true)]
     param()
     
-    # Get PSReadLine history file location
     $historyFile = (Get-PSReadLineOption).HistorySavePath
     
     if (-not (Test-Path $historyFile)) {
@@ -10,7 +9,6 @@ function Remove-HistoryItem {
         return
     }
     
-    # Read all history items
     $historyItems = Get-Content $historyFile
     
     if ($historyItems.Count -eq 0) {
@@ -18,13 +16,11 @@ function Remove-HistoryItem {
         return
     }
     
-    # Create numbered list with most recent first (reverse order)
     $numberedItems = @()
     for ($i = $historyItems.Count - 1; $i -ge 0; $i--) {
         $numberedItems += "{0:D4}: {1}" -f ($historyItems.Count - $i), $historyItems[$i]
     }
     
-    # Use fzf to select items to delete (allow multiple selection)
     $selectedItems = $numberedItems | fzf --multi --ansi --height 40% --reverse --prompt 'Select history items to delete (Tab for multi-select): '
     
     if (-not $selectedItems) {
@@ -32,7 +28,6 @@ function Remove-HistoryItem {
         return
     }
     
-    # Extract the original commands from selected items
     $commandsToDelete = @()
     foreach ($item in $selectedItems) {
         if ($item -match '^\d{4}: (.+)$') {
@@ -44,7 +39,6 @@ function Remove-HistoryItem {
     $commandsToDelete | ForEach-Object { Write-Output "  $_" }
     
     if ($PSCmdlet.ShouldProcess("$($commandsToDelete.Count) history items", "Delete")) {
-        # Create new history without the selected items
         $newHistory = @()
         foreach ($historyItem in $historyItems) {
             if ($historyItem -notin $commandsToDelete) {
@@ -52,10 +46,8 @@ function Remove-HistoryItem {
             }
         }
         
-        # Write the updated history back to file
         $newHistory | Set-Content $historyFile -Encoding UTF8
         
-        # Reload the history file in the current session
         [Microsoft.PowerShell.PSConsoleReadLine]::ClearHistory()
         (Get-Content (Get-PSReadLineOption).HistorySavePath) -split "[^`r]`r?`n" | ForEach-Object { [Microsoft.PowerShell.PSConsoleReadLine]::AddToHistory($_) }
         
