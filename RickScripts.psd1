@@ -18,7 +18,8 @@
         'New-MergeRequest', 'Get-GitStash',
         'Remove-HistoryItem',
         'Remove-HistoryDuplicates',
-        'Move-IssueState'
+        'Move-IssueState',
+        'New-CalendarEvent'
     )
     
     # Aliases to export from this module
