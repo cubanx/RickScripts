@@ -1,14 +1,12 @@
 # RickScripts - Bash Version
 
-This directory contains bash translations of all the PowerShell functions in the parent `Functions` directory.
+This directory contains bash translations of the PowerShell functions in the parent `Functions` directory.
 
-## ⚠️ Important Disclaimer
+## ⚠️ No Longer Maintained
 
-**These are AI-generated translations of PowerShell functions and are completely untested.** 
+**I'm not auto-generating these scripts anymore.** If you want bash versions of these functions, feel free to use your own AI to create them! :)
 
-We have no idea if they actually work correctly. Use at your own risk and expect bugs, errors, and potentially broken functionality. These translations were created as a learning exercise and proof of concept, not as production-ready tools.
-
-Please test thoroughly before using in any important workflows!
+The existing files here are old AI-generated translations that are completely untested. Use at your own risk.
 
 ## Installation
 
