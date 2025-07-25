@@ -100,7 +100,7 @@ function Remove-HistoryDuplicates {
         
         # Clean up old backups (keep only 10 most recent)
         $allBackups = Get-ChildItem -Path $historyDir -Filter "$historyBaseName.backup.*$historyExtension" | 
-                     Sort-Object Name -Descending
+            Sort-Object Name -Descending
         
         if ($allBackups.Count -gt 10) {
             $backupsToDelete = $allBackups | Select-Object -Skip 10

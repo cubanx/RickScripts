@@ -10,10 +10,10 @@ function Move-IssueState {
     )
     
     $stateLabels = @{
-        "ToDo" = "P::TO DO"
-        "InDev" = "P::IN DEV"
+        "ToDo"           = "P::TO DO"
+        "InDev"          = "P::IN DEV"
         "AwaitingReview" = "P::AWAITING REVIEW"
-        "Done" = "P::DONE"
+        "Done"           = "P::DONE"
     }
     
     $allStateLabels = $stateLabels.Values
@@ -23,7 +23,8 @@ function Move-IssueState {
         if ($currentBranch -match '(\d+)') {
             $IssueNumber = $matches[1]
             Write-Debug "Extracted issue number $IssueNumber from branch: $currentBranch"
-        } else {
+        }
+        else {
             Write-Error "Could not extract issue number from branch name: $currentBranch"
             Write-Debug "Please specify the issue number manually or ensure your branch name contains the issue number"
             return
@@ -40,7 +41,8 @@ function Move-IssueState {
     
     if ($currentStateLabel) {
         Write-Debug "Current state: $currentStateLabel"
-    } else {
+    }
+    else {
         Write-Debug "No current state label found"
     }
     

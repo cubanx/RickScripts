@@ -1,43 +1,44 @@
 function Get-AccessToken {
-	param(
-		[string]$ClientId,
-		[string]$ClientSecret
-	)
+    param(
+        [string]$ClientId,
+        [string]$ClientSecret
+    )
 	
-	$tokenPath = ".\calendar_token.json"
+    $tokenPath = ".\calendar_token.json"
 	
-	if (Test-Path $tokenPath) {
-		try {
-			$tokenData = Get-Content $tokenPath | ConvertFrom-Json
+    if (Test-Path $tokenPath) {
+        try {
+            $tokenData = Get-Content $tokenPath | ConvertFrom-Json
 			
-			$tokenAge = (Get-Date) - [datetime]$tokenData.created
-			if ($tokenAge.TotalSeconds -lt $tokenData.expires_in) {
-				Write-Host "Using existing access token" -ForegroundColor Green
-				return $tokenData.access_token
-			}
+            $tokenAge = (Get-Date) - [datetime]$tokenData.created
+            if ($tokenAge.TotalSeconds -lt $tokenData.expires_in) {
+                Write-Host "Using existing access token" -ForegroundColor Green
+                return $tokenData.access_token
+            }
 			
-			if ($tokenData.refresh_token) {
-				Write-Host "Refreshing access token..." -ForegroundColor Yellow
-				return Update-AccessToken -RefreshToken $tokenData.refresh_token -ClientId $ClientId -ClientSecret $ClientSecret
-			}
-		} catch {
-			Write-Warning "Error reading saved token: $($_.Exception.Message)"
-		}
-	}
+            if ($tokenData.refresh_token) {
+                Write-Host "Refreshing access token..." -ForegroundColor Yellow
+                return Update-AccessToken -RefreshToken $tokenData.refresh_token -ClientId $ClientId -ClientSecret $ClientSecret
+            }
+        }
+        catch {
+            Write-Warning "Error reading saved token: $($_.Exception.Message)"
+        }
+    }
 	
-	Write-Host "Getting new access token..." -ForegroundColor Yellow
-	return Get-NewAccessToken -ClientId $ClientId -ClientSecret $ClientSecret
+    Write-Host "Getting new access token..." -ForegroundColor Yellow
+    return Get-NewAccessToken -ClientId $ClientId -ClientSecret $ClientSecret
 }
 
 function Get-NewAccessToken {
-	param(
-		[string]$ClientId,
-		[string]$ClientSecret
-	)
+    param(
+        [string]$ClientId,
+        [string]$ClientSecret
+    )
 	
-	if ([string]::IsNullOrEmpty($ClientId) -or [string]::IsNullOrEmpty($ClientSecret)) {
-		Write-Error "CLIENT_ID and CLIENT_SECRET must be configured in the script."
-		Write-Host @"
+    if ([string]::IsNullOrEmpty($ClientId) -or [string]::IsNullOrEmpty($ClientSecret)) {
+        Write-Error "CLIENT_ID and CLIENT_SECRET must be configured in the script."
+        Write-Host @"
 To set up Google Calendar API access:
 1. Go to https://console.cloud.google.com/ (use ANY Google account - personal or Workspace)
 2. Create a new project (free - just a container for credentials)
@@ -73,101 +74,102 @@ Note: These credentials will work with ANY Google Calendar you have access to:
 - Shared calendars
 The API doesn't distinguish between account types.
 "@ -ForegroundColor Cyan
-		throw "Authentication configuration required"
-	}
+        throw "Authentication configuration required"
+    }
 	
-	$REDIRECT_URI = "http://localhost:8080"
-	$SCOPE = "https://www.googleapis.com/auth/calendar"
+    $REDIRECT_URI = "http://localhost:8080"
+    $SCOPE = "https://www.googleapis.com/auth/calendar"
 	
-	$authUrl = "https://accounts.google.com/o/oauth2/auth?" + 
-	"client_id=$ClientId&" +
-	"redirect_uri=$([System.Web.HttpUtility]::UrlEncode($REDIRECT_URI))&" +
-	"scope=$([System.Web.HttpUtility]::UrlEncode($SCOPE))&" +
-	"response_type=code&" +
-	"access_type=offline&" +
-	"prompt=consent"
+    $authUrl = "https://accounts.google.com/o/oauth2/auth?" + 
+    "client_id=$ClientId&" +
+    "redirect_uri=$([System.Web.HttpUtility]::UrlEncode($REDIRECT_URI))&" +
+    "scope=$([System.Web.HttpUtility]::UrlEncode($SCOPE))&" +
+    "response_type=code&" +
+    "access_type=offline&" +
+    "prompt=consent"
 	
-	Write-Host "Opening browser for authentication..." -ForegroundColor Cyan
-	Start-Process $authUrl
+    Write-Host "Opening browser for authentication..." -ForegroundColor Cyan
+    Start-Process $authUrl
 	
-	$listener = [System.Net.HttpListener]::new()
-	$listener.Prefixes.Add("http://localhost:8080/")
-	$listener.Start()
+    $listener = [System.Net.HttpListener]::new()
+    $listener.Prefixes.Add("http://localhost:8080/")
+    $listener.Start()
 	
-	Write-Host "Waiting for authorization callback..." -ForegroundColor Yellow
-	$context = $listener.GetContext()
-	$request = $context.Request
-	$response = $context.Response
+    Write-Host "Waiting for authorization callback..." -ForegroundColor Yellow
+    $context = $listener.GetContext()
+    $request = $context.Request
+    $response = $context.Response
 	
-	$responseString = "<html><body><h1>Authorization received!</h1><p>You can close this window.</p></body></html>"
-	$buffer = [System.Text.Encoding]::UTF8.GetBytes($responseString)
-	$response.ContentLength64 = $buffer.Length
-	$response.OutputStream.Write($buffer, 0, $buffer.Length)
-	$response.OutputStream.Close()
-	$listener.Stop()
+    $responseString = "<html><body><h1>Authorization received!</h1><p>You can close this window.</p></body></html>"
+    $buffer = [System.Text.Encoding]::UTF8.GetBytes($responseString)
+    $response.ContentLength64 = $buffer.Length
+    $response.OutputStream.Write($buffer, 0, $buffer.Length)
+    $response.OutputStream.Close()
+    $listener.Stop()
 	
-	$authCode = $request.QueryString["code"]
-	if (-not $authCode) {
-		Write-Error "No authorization code received"
-		throw "Authorization failed"
-	}
+    $authCode = $request.QueryString["code"]
+    if (-not $authCode) {
+        Write-Error "No authorization code received"
+        throw "Authorization failed"
+    }
 	
-	$tokenUrl = "https://oauth2.googleapis.com/token"
-	$body = @{
-		client_id     = $ClientId
-		client_secret = $ClientSecret
-		code          = $authCode
-		grant_type    = "authorization_code"
-		redirect_uri  = $REDIRECT_URI
-	}
+    $tokenUrl = "https://oauth2.googleapis.com/token"
+    $body = @{
+        client_id     = $ClientId
+        client_secret = $ClientSecret
+        code          = $authCode
+        grant_type    = "authorization_code"
+        redirect_uri  = $REDIRECT_URI
+    }
 	
-	$response = Invoke-RestMethod -Uri $tokenUrl -Method Post -Body $body -ContentType "application/x-www-form-urlencoded"
+    $response = Invoke-RestMethod -Uri $tokenUrl -Method Post -Body $body -ContentType "application/x-www-form-urlencoded"
 	
-	$tokenData = @{
-		access_token  = $response.access_token
-		refresh_token = $response.refresh_token
-		expires_in    = $response.expires_in
-		created       = (Get-Date).ToString()
-	}
+    $tokenData = @{
+        access_token  = $response.access_token
+        refresh_token = $response.refresh_token
+        expires_in    = $response.expires_in
+        created       = (Get-Date).ToString()
+    }
 	
-	$tokenData | ConvertTo-Json | Set-Content ".\calendar_token.json"
-	Write-Host "Access token saved successfully!" -ForegroundColor Green
+    $tokenData | ConvertTo-Json | Set-Content ".\calendar_token.json"
+    Write-Host "Access token saved successfully!" -ForegroundColor Green
 	
-	return $response.access_token
+    return $response.access_token
 }
 
 function Update-AccessToken {
-	param(
-		[string]$RefreshToken,
-		[string]$ClientId,
-		[string]$ClientSecret
-	)
+    param(
+        [string]$RefreshToken,
+        [string]$ClientId,
+        [string]$ClientSecret
+    )
 	
-	$tokenUrl = "https://oauth2.googleapis.com/token"
-	$body = @{
-		client_id     = $ClientId
-		client_secret = $ClientSecret
-		refresh_token = $RefreshToken
-		grant_type    = "refresh_token"
-	}
+    $tokenUrl = "https://oauth2.googleapis.com/token"
+    $body = @{
+        client_id     = $ClientId
+        client_secret = $ClientSecret
+        refresh_token = $RefreshToken
+        grant_type    = "refresh_token"
+    }
 	
-	try {
-		$response = Invoke-RestMethod -Uri $tokenUrl -Method Post -Body $body -ContentType "application/x-www-form-urlencoded"
+    try {
+        $response = Invoke-RestMethod -Uri $tokenUrl -Method Post -Body $body -ContentType "application/x-www-form-urlencoded"
 		
-		$tokenData = @{
-			access_token  = $response.access_token
-			refresh_token = $RefreshToken
-			expires_in    = $response.expires_in
-			created       = (Get-Date).ToString()
-		}
+        $tokenData = @{
+            access_token  = $response.access_token
+            refresh_token = $RefreshToken
+            expires_in    = $response.expires_in
+            created       = (Get-Date).ToString()
+        }
 		
-		$tokenData | ConvertTo-Json | Set-Content ".\calendar_token.json"
-		Write-Host "Access token refreshed successfully!" -ForegroundColor Green
+        $tokenData | ConvertTo-Json | Set-Content ".\calendar_token.json"
+        Write-Host "Access token refreshed successfully!" -ForegroundColor Green
 		
-		return $response.access_token
-	} catch {
-		Write-Warning "Failed to refresh token: $($_.Exception.Message)"
-		Write-Host "Getting new token..." -ForegroundColor Yellow
-		return Get-NewAccessToken -ClientId $ClientId -ClientSecret $ClientSecret
-	}
+        return $response.access_token
+    }
+    catch {
+        Write-Warning "Failed to refresh token: $($_.Exception.Message)"
+        Write-Host "Getting new token..." -ForegroundColor Yellow
+        return Get-NewAccessToken -ClientId $ClientId -ClientSecret $ClientSecret
+    }
 }
