@@ -3,7 +3,7 @@ function New-MergeRequest {
     param(
         [int]$IssueNumber,
         [string]$Title = "",
-        [string]$TemplatePath = ".gitlab/merge_request_templates/Default.md",
+        [string]$TemplatePath = ".gitlab/merge_request_templates/prospector.md",
         [string]$Description = "",
         [string]$HowToTest = ""
     )
@@ -71,5 +71,6 @@ function New-MergeRequest {
 }
 
 Set-Alias nmr New-MergeRequest
+
 
 
