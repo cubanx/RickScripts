@@ -4,8 +4,8 @@ foreach ($File in $CommonFiles) {
 	. $File.FullName
 }
 
-# Dot-source all function files
-$FunctionFiles = Get-ChildItem -Path $PSScriptRoot\Functions\*.ps1
+# Dot-source all function files (including subdirectories)
+$FunctionFiles = Get-ChildItem -Path $PSScriptRoot\Functions -Filter *.ps1 -Recurse
 foreach ($File in $FunctionFiles) {
 	. $File.FullName
 }

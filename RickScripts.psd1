@@ -20,11 +20,13 @@
         'Remove-HistoryDuplicates',
         'Move-IssueState',
         'New-CalendarEvent',
-        'Invoke-ValidationScript'
+        'Invoke-ValidationScript',
+        'Add-EnvTo1Password',
+        'Get-EnvFrom1Password'
     )
     
     # Aliases to export from this module
-    AliasesToExport = @('sb', 'smr', 'rlb', 'cnm', 'opf', 'nmr', 'ggs', 'rhi', 'rhd', 'mis', 'ivs')
+    AliasesToExport = @('sb', 'smr', 'rlb', 'cnm', 'opf', 'nmr', 'ggs', 'rhi', 'rhd', 'mis', 'ivs', 'ae1p', 'ge1p')
     
     # Variables to export from this module
     VariablesToExport = @('mem', 'gl', 'pro', 'auth', 'petl')
