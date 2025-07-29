@@ -19,11 +19,12 @@
         'Remove-HistoryItem',
         'Remove-HistoryDuplicates',
         'Move-IssueState',
-        'New-CalendarEvent'
+        'New-CalendarEvent',
+        'Invoke-ValidationScript'
     )
     
     # Aliases to export from this module
-    AliasesToExport = @('sb', 'smr', 'rlb', 'cnm', 'opf', 'nmr', 'ggs', 'rhi', 'rhd', 'mis')
+    AliasesToExport = @('sb', 'smr', 'rlb', 'cnm', 'opf', 'nmr', 'ggs', 'rhi', 'rhd', 'mis', 'ivs')
     
     # Variables to export from this module
     VariablesToExport = @('mem', 'gl', 'pro', 'auth', 'petl')
