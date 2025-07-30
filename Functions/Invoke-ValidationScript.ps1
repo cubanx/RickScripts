@@ -89,8 +89,27 @@ function Invoke-ValidationScript {
 
         Write-Host ""
         
+        # Handle cypress test type selection
         if ($selectedCommand -eq "cypress") {
-            Write-Host "Cypress selected. You may need to add --testType and --extraCypressOptions manually." -ForegroundColor Yellow
+            Write-Host "Select cypress test type:" -ForegroundColor Yellow
+            $cypressTestTypes = @("integration", "component")
+            $selectedTestType = $cypressTestTypes | fzf --prompt="Test Type> " --height=40%
+            
+            if (-not $selectedTestType) {
+                Write-Warning "No test type selected. Exiting."
+                return
+            }
+            Write-Host "Selected test type: $selectedTestType" -ForegroundColor Green
+            
+            # Update validation args to include test type
+            if ($selectedCommand -in $commandsWithoutFilter) {
+                $validationArgs = "--command $selectedCommand --testType $selectedTestType"
+            }
+            else {
+                $validationArgs = "--command $selectedCommand --filter $selectedFilter --testType $selectedTestType"
+            }
+            
+            Write-Host ""
         }
 
         $fullCommand = "$ScriptPath $validationArgs"
@@ -107,5 +126,6 @@ function Invoke-ValidationScript {
 }
 
 Set-Alias ivs Invoke-ValidationScript
+
 
 
