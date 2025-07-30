@@ -1,0 +1,3 @@
+project_name: RickScripts
+language: python  # Using python as closest match for PowerShell syntax highlighting
+description: PowerShell module with personal development utilities and Git workflow helpers
