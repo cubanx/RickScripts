@@ -43,25 +43,10 @@ function Invoke-ValidationScript {
             "vitest"
         )
 
-        # Handle filter selection
-        if ($Filter) {
-            $selectedFilter = $Filter
-            Write-Host "Using filter: $selectedFilter" -ForegroundColor Green
-        }
-        else {
-            Write-Host "Select a filter:" -ForegroundColor Yellow
-            $selectedFilter = $filters | fzf --prompt="Filter> " --height=40%
-            
-            if (-not $selectedFilter) {
-                Write-Warning "No filter selected. Exiting."
-                return
-            }
-            Write-Host "Selected filter: $selectedFilter" -ForegroundColor Green
-        }
+        # Commands that run from monorepo root and don't accept filter parameter
+        $commandsWithoutFilter = @("lint", "prettier")
 
-        Write-Host ""
-
-        # Handle command selection
+        # Handle command selection first
         if ($Command) {
             $selectedCommand = $Command
             Write-Host "Using command: $selectedCommand" -ForegroundColor Green
@@ -79,7 +64,30 @@ function Invoke-ValidationScript {
 
         Write-Host ""
 
-        $validationArgs = "--command $selectedCommand --filter $selectedFilter"
+        # Handle filter selection only if command needs it
+        if ($selectedCommand -in $commandsWithoutFilter) {
+            Write-Host "Command '$selectedCommand' runs from monorepo root and doesn't require a filter." -ForegroundColor Cyan
+            $validationArgs = "--command $selectedCommand"
+        }
+        else {
+            if ($Filter) {
+                $selectedFilter = $Filter
+                Write-Host "Using filter: $selectedFilter" -ForegroundColor Green
+            }
+            else {
+                Write-Host "Select a filter:" -ForegroundColor Yellow
+                $selectedFilter = $filters | fzf --prompt="Filter> " --height=40%
+                
+                if (-not $selectedFilter) {
+                    Write-Warning "No filter selected. Exiting."
+                    return
+                }
+                Write-Host "Selected filter: $selectedFilter" -ForegroundColor Green
+            }
+            $validationArgs = "--command $selectedCommand --filter $selectedFilter"
+        }
+
+        Write-Host ""
         
         if ($selectedCommand -eq "cypress") {
             Write-Host "Cypress selected. You may need to add --testType and --extraCypressOptions manually." -ForegroundColor Yellow
@@ -99,3 +107,5 @@ function Invoke-ValidationScript {
 }
 
 Set-Alias ivs Invoke-ValidationScript
+
+
