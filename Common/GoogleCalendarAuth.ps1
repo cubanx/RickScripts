@@ -4,7 +4,7 @@ function Get-AccessToken {
         [string]$ClientSecret
     )
 	
-    $tokenPath = ".\calendar_token.json"
+    $tokenPath = "$env:HOME\calendar_token.json"
 	
     if (Test-Path $tokenPath) {
         try {
@@ -131,7 +131,7 @@ The API doesn't distinguish between account types.
         created       = (Get-Date).ToString()
     }
 	
-    $tokenData | ConvertTo-Json | Set-Content ".\calendar_token.json"
+    $tokenData | ConvertTo-Json | Set-Content "$env:HOME\calendar_token.json"
     Write-Host "Access token saved successfully!" -ForegroundColor Green
 	
     return $response.access_token
@@ -162,7 +162,7 @@ function Update-AccessToken {
             created       = (Get-Date).ToString()
         }
 		
-        $tokenData | ConvertTo-Json | Set-Content ".\calendar_token.json"
+        $tokenData | ConvertTo-Json | Set-Content "$env:HOME\calendar_token.json"
         Write-Host "Access token refreshed successfully!" -ForegroundColor Green
 		
         return $response.access_token
@@ -173,3 +173,4 @@ function Update-AccessToken {
         return Get-NewAccessToken -ClientId $ClientId -ClientSecret $ClientSecret
     }
 }
+
