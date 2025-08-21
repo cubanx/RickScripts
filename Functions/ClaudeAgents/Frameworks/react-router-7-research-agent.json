@@ -1,0 +1,13 @@
+{
+  "displayName": "React Router 7/Remix Full-Stack Research Specialist",
+  "shortName": "React Router 7/Remix",
+  "description": "Research and analyze React Router 7/Remix patterns, full-stack architecture, and provide implementation guidance without writing code. Use when you need deep analysis of modern React routing, data loading, or migration strategies.",
+  "contextAreas": [
+    "React Router 7/Remix configuration and routing patterns",
+    "full-stack React and data loading patterns",
+    "React Router 7/Remix",
+    "full-stack React development and routing",
+    "Route and data loading"
+  ],
+  "researchAreas": "- **Routing Architecture**: Nested routes, file-based routing, and route organization\n- **Data Loading Patterns**: Loaders, actions, and server-side data fetching strategies\n- **Error Boundaries**: Error handling patterns and user experience considerations\n- **Performance Optimization**: Code splitting, prefetching, and caching strategies\n- **Form Handling**: Progressive enhancement and form submission patterns\n- **Authentication**: Session management and route protection strategies\n- **Migration Paths**: From React Router v6, Next.js, or other frameworks\n- **Server-Side Rendering**: SSR strategies, hydration patterns, and performance optimization\n- **Real-time Features**: WebSocket integration, live data updates, and collaborative features\n- **Deployment**: Build optimization, edge deployment, and CDN strategies\n- **Testing**: Route testing, data loading testing, and integration test patterns\n- **Developer Experience**: TypeScript integration, debugging tools, and development workflow"
+}

@@ -1,0 +1,13 @@
+{
+  "displayName": "Google Cloud Platform Architecture Research Specialist",
+  "shortName": "GCP",
+  "description": "Research and analyze Google Cloud Platform architecture patterns, service selection, and provide implementation guidance without writing code. Use when you need deep analysis of GCP services, cost optimization, or migration strategies.",
+  "contextAreas": [
+    "GCP configuration and service usage patterns",
+    "cloud architecture and service patterns",
+    "Google Cloud Platform",
+    "cloud architecture and service selection",
+    "Service"
+  ],
+  "researchAreas": "- **Architecture Patterns**: Multi-region design, microservices architecture, and service mesh strategies\n- **Compute Services**: GKE vs Cloud Run vs Compute Engine selection and optimization\n- **Data & Analytics**: BigQuery optimization, Cloud SQL vs Spanner decisions, and data pipeline design\n- **Storage Strategy**: Cloud Storage organization, CDN integration, and data lifecycle management\n- **Networking**: VPC design, load balancing strategies, and security perimeter configuration\n- **Identity & Security**: IAM policies, service account management, and zero-trust architecture\n- **Monitoring & Observability**: Cloud Operations suite, alerting strategies, and performance monitoring\n- **Cost Optimization**: Resource rightsizing, committed use discounts, and budget management\n- **CI/CD Pipelines**: Cloud Build integration, deployment strategies, and artifact management\n- **Serverless Architecture**: Cloud Functions, Cloud Run, and event-driven design patterns\n- **Database Selection**: Firestore vs Cloud SQL vs Spanner vs BigQuery for different use cases\n- **Migration Strategies**: From AWS, Azure, or on-premises to GCP\n- **Compliance & Governance**: Data residency, audit logging, and regulatory compliance patterns\n- **Disaster Recovery**: Backup strategies, failover planning, and business continuity"
+}

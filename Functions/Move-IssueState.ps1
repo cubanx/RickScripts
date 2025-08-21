@@ -83,7 +83,41 @@ function Move-IssueState {
     
     if ($PSCmdlet.ShouldProcess("Issue #$IssueNumber", "Execute: $commandString")) {
         & glab @glabArgs
+        
+        # Find and update associated MR with the same labels
+        try {
+            $mrListJson = glab mr list --output=json --search "#$IssueNumber" | ConvertFrom-Json
+            $relatedMR = $mrListJson | Where-Object { $_.title -match "#$IssueNumber" -or $_.description -match "#$IssueNumber" } | Select-Object -First 1
+            
+            if ($relatedMR) {
+                Write-Debug "Found related MR: !$($relatedMR.iid) - $($relatedMR.title)"
+                
+                $mrGlabArgs = @("mr", "update", $relatedMR.iid)
+                
+                if ($currentStateLabel) {
+                    $mrGlabArgs += "--unlabel"
+                    $mrGlabArgs += $currentStateLabel
+                }
+                
+                foreach ($label in $allLabelsToSet) {
+                    $mrGlabArgs += "--label"
+                    $mrGlabArgs += $label
+                }
+                
+                $mrCommandString = "glab " + ($mrGlabArgs -join " ")
+                Write-Debug "MR Command to execute: $mrCommandString"
+                
+                & glab @mrGlabArgs
+            }
+            else {
+                Write-Debug "No related MR found for issue #$IssueNumber"
+            }
+        }
+        catch {
+            Write-Debug "Error finding or updating related MR: $($_.Exception.Message)"
+        }
     }
 }
 
 Set-Alias mis Move-IssueState
+

@@ -22,11 +22,12 @@
         'New-CalendarEvent',
         'Invoke-ValidationScript',
         'Add-EnvTo1Password',
-        'Get-EnvFrom1Password'
+        'Get-EnvFrom1Password',
+        'New-ClaudeAgent'
     )
     
     # Aliases to export from this module
-    AliasesToExport = @('sb', 'smr', 'rlb', 'cnm', 'opf', 'nmr', 'ggs', 'rhi', 'rhd', 'mis', 'ivs', 'ae1p', 'ge1p')
+    AliasesToExport = @('sb', 'smr', 'rlb', 'cnm', 'opf', 'nmr', 'ggs', 'rhi', 'rhd', 'mis', 'ivs', 'ae1p', 'ge1p', 'nca')
     
     # Variables to export from this module
     VariablesToExport = @('mem', 'gl', 'pro', 'auth', 'petl')
