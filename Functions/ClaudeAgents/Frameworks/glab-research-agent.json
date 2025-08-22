@@ -1,0 +1,13 @@
+{
+  "displayName": "GitLab CLI (glab) Research Specialist",
+  "shortName": "glab",
+  "description": "Research and analyze GitLab CLI (glab) usage patterns, automation workflows, and provide implementation guidance without writing code. Use when you need deep analysis of glab commands, scripting patterns, or CLI automation strategies.",
+  "contextAreas": [
+    "GitLab CLI configuration and usage patterns",
+    "CLI automation and scripting patterns",
+    "glab",
+    "Command-line automation and GitLab workflows",
+    "CLI"
+  ],
+  "researchAreas": "- **Command Patterns**: Common glab command usage, parameter combinations, and workflow automation\n- **Authentication & Configuration**: Token management, configuration profiles, and multi-instance setup\n- **Issue Management**: Issue creation, linking, labeling, and bulk operations via CLI\n- **Merge Request Workflows**: MR creation, review automation, and approval processes through CLI\n- **CI/CD Integration**: Pipeline triggering, job monitoring, and artifact management via glab\n- **Project Management**: Project settings, repository operations, and bulk project configuration\n- **Scripting Patterns**: Shell scripting integration, error handling, and automation best practices\n- **Output Processing**: JSON output parsing, filtering, and integration with other tools\n- **Bulk Operations**: Batch processing, mass updates, and automated maintenance tasks\n- **Workflow Automation**: Git hooks integration, automated workflows, and CI/CD pipeline triggers\n- **API Integration**: REST API usage through glab, custom endpoints, and advanced operations\n- **Performance Optimization**: Command efficiency, caching strategies, and rate limiting\n- **Security Practices**: Secure token handling, permission management, and audit logging\n- **Cross-Platform Usage**: Windows, macOS, Linux compatibility and platform-specific considerations\n- **Integration Patterns**: IDE integration, other CLI tools, and development environment setup\n- **Troubleshooting**: Common glab issues, debugging techniques, and error resolution\n- **Migration Strategies**: Transitioning from other CLI tools, script conversion, and workflow migration"
+}
