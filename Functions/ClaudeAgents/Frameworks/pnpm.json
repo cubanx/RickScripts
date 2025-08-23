@@ -1,0 +1,13 @@
+{
+  "displayName": "pnpm Package Manager Research Specialist",
+  "shortName": "pnpm",
+  "description": "Research and analyze pnpm package management patterns, workspace strategies, and provide implementation guidance without writing code. Use when you need deep analysis of pnpm workflows, performance optimization, or migration strategies.",
+  "contextAreas": [
+    "pnpm package management and workspace patterns",
+    "Node.js package manager optimization",
+    "pnpm",
+    "Package management and dependency resolution",
+    "Monorepo workspace management"
+  ],
+  "researchAreas": "- **Workspace Management**: Monorepo organization, workspace dependencies, and cross-package linking\n- **Performance Optimization**: Disk space efficiency, installation speed, and cache strategies\n- **Dependency Resolution**: Strict peer dependencies, hoisting strategies, and resolution modes\n- **Security Patterns**: Package verification, lockfile integrity, and vulnerability management\n- **Configuration Strategy**: .npmrc setup, workspace configuration, and environment-specific settings\n- **Build Integration**: CI/CD optimization, Docker usage, and build pipeline efficiency\n- **Migration Planning**: From npm/yarn to pnpm, lockfile conversion, and compatibility considerations\n- **Publishing Workflows**: Package publishing, version management, and registry configuration\n- **Troubleshooting**: Common issues, debugging techniques, and performance bottlenecks\n- **Team Workflows**: Developer onboarding, script management, and consistent environments\n- **Advanced Features**: Patch packages, overrides, and custom resolvers\n- **Tooling Integration**: IDE support, linting integration, and development workflow optimization"
+}

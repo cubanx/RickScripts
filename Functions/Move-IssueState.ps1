@@ -55,27 +55,46 @@ function Move-IssueState {
     
     Write-Debug "Moving issue #$IssueNumber from '$currentStateLabel' to '$NewState'"
     
-    $glabArgs = @("issue", "update", $IssueNumber)
-    
-    if ($currentStateLabel) {
-        $glabArgs += "--unlabel"
-        $glabArgs += $currentStateLabel
-    }
-    
     $labelsToAdd = @($newLabel)
+    $labelsToRemove = @()
     
-    if ($NewState -eq "AwaitingReview") {
-        $labelsToAdd += "Needs Engineering Approval"
-        $labelsToAdd += "Ready for QA"
+    switch ($NewState) {
+        "AwaitingReview" {
+            $labelsToAdd += "Needs Engineering Approval"
+            $labelsToAdd += "Ready for QA"
+        }
+        "Done" {
+            $labelsToRemove += "Needs Engineering Approval"
+            $labelsToRemove += "Ready for QA"
+        }
     }
     
-    $existingNonStateLabels = $currentLabels | Where-Object { $_ -notin $allStateLabels }
+    $existingNonStateLabels = $currentLabels | Where-Object { $_ -notin $allStateLabels -and $_ -notin $labelsToRemove }
     $allLabelsToSet = $existingNonStateLabels + $labelsToAdd
-    
-    foreach ($label in $allLabelsToSet) {
-        $glabArgs += "--label"
-        $glabArgs += $label
+
+    function Add-LabelUpdates {
+        param($args, $currentStateLabel, $labelsToRemove, $allLabelsToSet)
+        
+        if ($currentStateLabel) {
+            $args += "--unlabel"
+            $args += $currentStateLabel
+        }
+        
+        foreach ($labelToRemove in $labelsToRemove) {
+            $args += "--unlabel"
+            $args += $labelToRemove
+        }
+        
+        foreach ($label in $allLabelsToSet) {
+            $args += "--label"
+            $args += $label
+        }
+        
+        return $args
     }
+    
+    $glabArgs = @("issue", "update", $IssueNumber)
+    $glabArgs = Add-LabelUpdates $glabArgs $currentStateLabel $labelsToRemove $allLabelsToSet
     
     $commandString = "glab " + ($glabArgs -join " ")
     
@@ -93,16 +112,7 @@ function Move-IssueState {
                 Write-Debug "Found related MR: !$($relatedMR.iid) - $($relatedMR.title)"
                 
                 $mrGlabArgs = @("mr", "update", $relatedMR.iid)
-                
-                if ($currentStateLabel) {
-                    $mrGlabArgs += "--unlabel"
-                    $mrGlabArgs += $currentStateLabel
-                }
-                
-                foreach ($label in $allLabelsToSet) {
-                    $mrGlabArgs += "--label"
-                    $mrGlabArgs += $label
-                }
+                $mrGlabArgs = Add-LabelUpdates $mrGlabArgs $currentStateLabel $labelsToRemove $allLabelsToSet
                 
                 $mrCommandString = "glab " + ($mrGlabArgs -join " ")
                 Write-Debug "MR Command to execute: $mrCommandString"
@@ -120,4 +130,5 @@ function Move-IssueState {
 }
 
 Set-Alias mis Move-IssueState
+
 

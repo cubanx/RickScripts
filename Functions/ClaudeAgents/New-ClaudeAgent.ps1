@@ -70,7 +70,7 @@ function New-ClaudeAgent {
             continue
         }
         
-        $filePath = Join-Path $claudeAgentsPath "$agentKey.md"
+        $filePath = Join-Path $claudeAgentsPath "$agentKey-research.md"
         
         # Check if agent already exists
         if ((Test-Path $filePath) -and -not $Force) {
@@ -116,4 +116,5 @@ function New-ClaudeAgent {
 }
 
 Set-Alias nca New-ClaudeAgent
+
 
