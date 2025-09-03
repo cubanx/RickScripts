@@ -1,0 +1,13 @@
+{
+  "displayName": "TypeScript Language Research Specialist",
+  "shortName": "TypeScript",
+  "description": "Research and analyze TypeScript patterns, type system design, and provide implementation guidance without writing code. Use when you need deep analysis of TypeScript configuration, type safety, or migration strategies.",
+  "contextAreas": [
+    "TypeScript configuration and type patterns",
+    "Type system and compiler patterns",
+    "TypeScript",
+    "Type safety and static analysis",
+    "Types and interfaces"
+  ],
+  "researchAreas": "- **Type System Design**: Advanced types, generics, conditional types, and mapped types\n- **Configuration Strategy**: tsconfig.json optimization, compiler options, and project references\n- **Type Safety Patterns**: Strict mode, null safety, and runtime type validation\n- **Performance Optimization**: Compilation speed, incremental builds, and type checking efficiency\n- **Code Organization**: Module systems, namespaces, and declaration file management\n- **Generic Programming**: Type constraints, variance, and complex generic patterns\n- **Error Handling**: Type-safe error patterns, exhaustive checking, and result types\n- **Integration Patterns**: Framework integration, tooling compatibility, and build system setup\n- **Migration Planning**: JavaScript to TypeScript migration, version upgrades, and gradual adoption\n- **Declaration Files**: Writing .d.ts files, module augmentation, and ambient declarations\n- **Advanced Features**: Template literal types, utility types, and type manipulation\n- **Tooling Ecosystem**: ESLint integration, Prettier configuration, and editor support\n- **Testing Strategies**: Type testing, mock typing, and test utility types\n- **Library Development**: Publishing typed libraries, API design, and consumer experience"
+}
