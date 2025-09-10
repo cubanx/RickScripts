@@ -50,6 +50,8 @@ function New-MergeRequest {
     }
     $FormattedTitle = "[#${IssueNumber}] $Title"
 
+    glab issue update $IssueNumber --assignee rick.diaz
+
     $glabArgs = @(
         "mr",
         "create",
@@ -74,6 +76,7 @@ function New-MergeRequest {
 }
 
 Set-Alias nmr New-MergeRequest
+
 
 
 
