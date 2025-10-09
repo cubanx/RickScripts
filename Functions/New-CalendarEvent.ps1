@@ -40,6 +40,7 @@
 
 . "$PSScriptRoot\..\Common\GoogleCalendarAuth.ps1"
 . "$PSScriptRoot\..\Common\DateParser.ps1"
+. "$PSScriptRoot\New-GoogleCalendarEvent.ps1"
 
 function New-CalendarEvent {
     [CmdletBinding(DefaultParameterSetName = 'AllDay')]
@@ -72,75 +73,6 @@ function New-CalendarEvent {
     if ([string]::IsNullOrEmpty($PRIMARY_CALENDAR)) {
         Write-Error "GOOGLE_CALENDAR_PRIMARY_ID environment variable must be set to your primary calendar email"
         return
-    }
-
-    function New-GoogleCalendarEvent {
-        param(
-            [string]$AccessToken,
-            [string]$CalendarId,
-            [datetime]$EventDate,
-            [datetime]$EventEndDate,
-            [string]$StartTime,
-            [string]$EndTime,
-            [string]$EventTitle,
-            [bool]$IsAllDay = $false
-        )
-		
-        if ($IsAllDay) {
-            $calendarEvent = @{
-                summary      = $EventTitle
-                start        = @{
-                    date = $EventDate.ToString("yyyy-MM-dd")
-                }
-                end          = @{
-                    date = $EventEndDate.AddDays(1).ToString("yyyy-MM-dd")
-                }
-                status       = "confirmed"
-                transparency = "transparent"
-                visibility   = "default"
-            }
-        }
-        else {
-            $startDateTime = Get-Date -Date $EventDate.Date -Hour $StartTime.Split(':')[0] -Minute $StartTime.Split(':')[1]
-            $endDateTime = Get-Date -Date $EventEndDate.Date -Hour $EndTime.Split(':')[0] -Minute $EndTime.Split(':')[1]
-			
-            $calendarEvent = @{
-                summary      = $EventTitle
-                start        = @{
-                    dateTime = $startDateTime.ToString("yyyy-MM-ddTHH:mm:ss")
-                    timeZone = "America/New_York"
-                }
-                end          = @{
-                    dateTime = $endDateTime.ToString("yyyy-MM-ddTHH:mm:ss")
-                    timeZone = "America/New_York"
-                }
-                status       = "confirmed"
-                transparency = "opaque"
-                visibility   = "default"
-            }
-        }
-		
-        $headers = @{
-            "Authorization" = "Bearer $AccessToken"
-            "Content-Type"  = "application/json"
-        }
-		
-        $uri = "https://www.googleapis.com/calendar/v3/calendars/$([System.Web.HttpUtility]::UrlEncode($CalendarId))/events"
-		
-        try {
-            $response = Invoke-RestMethod -Uri $uri -Method Post -Headers $headers -Body ($calendarEvent | ConvertTo-Json -Depth 3)
-            return $response
-        }
-        catch {
-            Write-Error "Failed to create event on calendar '$CalendarId': $($_.Exception.Message)"
-            if ($_.Exception.Response) {
-                $errorDetails = $_.Exception.Response.GetResponseStream()
-                $reader = New-Object System.IO.StreamReader($errorDetails)
-                $errorBody = $reader.ReadToEnd()
-                Write-Host "Error details: $errorBody" -ForegroundColor Red
-            }
-            return $null
-        }
     }
 
     Add-Type -AssemblyName System.Web
@@ -176,12 +108,12 @@ function New-CalendarEvent {
 		
         Write-Host "Creating OOO event on primary calendar..." -ForegroundColor Yellow
         $primaryEvent = New-GoogleCalendarEvent -AccessToken $accessToken -CalendarId $PRIMARY_CALENDAR -EventDate $eventDate -EventEndDate $eventEndDate -StartTime $StartTime -EndTime $EndTime -EventTitle $Title -IsAllDay $isAllDay
-		
+
         if ($primaryEvent) {
             Write-Host "✓ Primary calendar event created successfully!" -ForegroundColor Green
             Write-Host "  Event ID: $($primaryEvent.id)" -ForegroundColor Gray
         }
-		
+
         Write-Host "Creating OOO event on Sealand calendar..." -ForegroundColor Yellow
         $sealandEvent = New-GoogleCalendarEvent -AccessToken $accessToken -CalendarId $SEALAND_CALENDAR -EventDate $eventDate -EventEndDate $eventEndDate -StartTime $StartTime -EndTime $EndTime -EventTitle $Title -IsAllDay $isAllDay
 		
@@ -207,4 +139,6 @@ function New-CalendarEvent {
         Write-Error "An unexpected error occurred: $($_.Exception.Message)"
     }
 }
+
+
 
