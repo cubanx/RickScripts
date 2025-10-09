@@ -60,7 +60,7 @@ function New-CalendarEvent {
 		
         [Parameter(Mandatory = $false, ParameterSetName = 'AllDay')]
         [Parameter(Mandatory = $false, ParameterSetName = 'Timed')]
-        [string]$Title = "Out of Office"
+        [string]$Title = "Ricardo OOO"
     )
 
     $PRIMARY_CALENDAR = $env:GOOGLE_CALENDAR_PRIMARY_ID
@@ -207,3 +207,4 @@ function New-CalendarEvent {
         Write-Error "An unexpected error occurred: $($_.Exception.Message)"
     }
 }
+
