@@ -6,7 +6,14 @@ function New-MergeRequest {
         [string]$TemplatePath = ".gitlab/merge_request_templates/prospector.md",
         [string]$Description = "",
         [string]$HowToTest = "",
-        [string]$BranchName = ""
+        [ValidateScript({
+                $maxWithIssuePrefix = 55 - 5
+                if ($_.Length -gt $maxWithIssuePrefix) {
+                    throw "Branch name cannot be longer than $maxWithIssuePrefix characters (leaves room for issue prefix). Provided: $($_.Length) characters"
+                }
+                $true
+            })]
+        [string]$NewBranchName = ""
     )
 
     if (-not $IssueNumber) {
@@ -53,10 +60,8 @@ function New-MergeRequest {
 
     $issuePrefix = $IssueNumber.ToString()
 
-    if ($BranchName) {
-        $branchSlug = ($BranchName.ToLower() -replace '[^a-z0-9]+', '-')
-        $branchSlug = $branchSlug.Trim('-')
-        $branchName = if ($branchSlug) { "$issuePrefix-$branchSlug" } else { $issuePrefix }
+    if ($NewBranchName) {
+        $branchName = "$issuePrefix-$NewBranchName"
     }
     else {
         $branchSlug = ($Title.ToLower() -replace '[^a-z0-9]+', '-')
@@ -65,7 +70,7 @@ function New-MergeRequest {
     }
 
     $MaxBranchLength = 55
-    if ($branchName.Length -gt $MaxBranchLength) {
+    if (-not $NewBranchName -and $branchName.Length -gt $MaxBranchLength) {
         $remainingLength = $MaxBranchLength - ($issuePrefix.Length + 1)
         $suggestions = @()
 
@@ -105,7 +110,16 @@ function New-MergeRequest {
     $glabArgs = @(
         "mr",
         "create",
-        "--yes",
+        "--yes"
+    )
+
+    if ($NewBranchName) {
+        $glabArgs += "--source-branch"
+        $glabArgs += $branchName
+        $glabArgs += "--create-source-branch"
+    }
+
+    $glabArgs += @(
         "--related-issue",
         $IssueNumber
         "--copy-issue-labels",
@@ -124,7 +138,7 @@ function New-MergeRequest {
         $mrOutput = Invoke-Expression "glab $glabArgs" | Out-String
         Write-Output $mrOutput
 
-        if ($mrOutput -match '!(\d+)') {
+        if ($mrOutput -match '/merge_requests/(\d+)') {
             $mrNumber = $matches[1]
             glab mr checkout $mrNumber
         }
@@ -132,6 +146,7 @@ function New-MergeRequest {
 }
 
 Set-Alias nmr New-MergeRequest
+
 
 
 
