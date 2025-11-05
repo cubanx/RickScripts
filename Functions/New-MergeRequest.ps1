@@ -27,28 +27,15 @@ function New-MergeRequest {
 
     $TemplateContent = Get-Content $TemplatePath -Raw
     $FinalDescription = $TemplateContent
-    $FinalDescription = $FinalDescription -replace "%{issue_id}", "#$IssueNumber"
     $FinalDescription = $FinalDescription -replace "\[issue_number_here\]", $IssueNumber
+    $FinalDescription = $FinalDescription -replace "<issue-number>", $IssueNumber
 
     if ($Description) {
-        $FinalDescription = $FinalDescription.Replace("Enter a brief description of the changes introduced by this merge request.", $Description)
+        $FinalDescription = $FinalDescription.Replace("Seriously dude, you have to put _SOMETHING_ here!", $Description)
     }
 
     if ($HowToTest) {
-        $FinalDescription = $FinalDescription.Replace("Enter a brief description of how to test the changes introduced by this merge request.", $HowToTest)
-    }
-
-    $textToRemove = @(
-        "%{issue_id}",
-        "(?s)### Environment.*?(?=## Checklist)",
-        "- \[ \] Does it run on all platforms \(web/iOS/Android\)\?\n",
-        "- \[ \] Have all static strings been translated\?\n",
-        "\(except screens\)",
-        "\n.*source_branch.*\n\n"
-    )
-
-    foreach ($item in $textToRemove) {
-        $FinalDescription = $FinalDescription -replace $item, ""
+        $FinalDescription = $FinalDescription -replace "(?s)### How to test\n\n<!-- OPTIONAL.*?-->", "### How to test`n`n$HowToTest"
     }
 
 
@@ -146,6 +133,7 @@ function New-MergeRequest {
 }
 
 Set-Alias nmr New-MergeRequest
+
 
 
 
