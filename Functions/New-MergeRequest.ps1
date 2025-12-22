@@ -179,7 +179,14 @@ function New-MergeRequest {
 
         if ($mrOutput -match '/merge_requests/(\d+)') {
             $mrNumber = $matches[1]
-            glab mr checkout $mrNumber
+            $mrJson = glab mr view $mrNumber --output json | ConvertFrom-Json
+            $sourceBranch = $mrJson.source_branch
+            if ($sourceBranch) {
+                glab mr checkout $mrNumber --set-upstream-to "origin/$sourceBranch"
+            }
+            else {
+                glab mr checkout $mrNumber
+            }
         }
     }
 }

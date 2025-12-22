@@ -32,7 +32,14 @@ function Switch-MergeRequest {
 
     if ($mr) {
         Write-Host "✅ Switching to merge request $mr" -ForegroundColor Green
-        glab mr checkout $mr
+        $mrJson = glab mr view $mr --output json | ConvertFrom-Json
+        $sourceBranch = $mrJson.source_branch
+        if ($sourceBranch) {
+            glab mr checkout $mr --set-upstream-to "origin/$sourceBranch"
+        }
+        else {
+            glab mr checkout $mr
+        }
     }
     else {
         Write-Output "No merge request selected"
@@ -40,3 +47,4 @@ function Switch-MergeRequest {
 }
 
 Set-Alias smr Switch-MergeRequest
+
