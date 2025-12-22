@@ -1,6 +1,10 @@
+. $PSScriptRoot\Switch-MergeRequest.Labels.ps1
+
 function New-MergeRequest {
     [CmdletBinding(SupportsShouldProcess = $true)]
     param(
+        [string[]]$SetProjectForPath,
+        [switch]$ResetProjectForPath,
         [int]$IssueNumber,
         [string]$Title = "",
         [string]$TemplatePath = ".gitlab/merge_request_templates/prospector.md",
@@ -16,8 +20,56 @@ function New-MergeRequest {
         [string]$NewBranchName = ""
     )
 
+    $currentFolder = Split-Path -Leaf (Get-Location)
+
+    if ($SetProjectForPath) {
+        Set-ProjectLabels -Labels $SetProjectForPath
+        Write-Host "✅ Set labels for folder '$currentFolder': $($SetProjectForPath -join ', ')" -ForegroundColor Green
+    }
+
+    if ($ResetProjectForPath) {
+        Remove-ProjectLabels
+        Write-Host "✅ Cleared labels for folder '$currentFolder'" -ForegroundColor Green
+    }
+
+    $labels = Get-ProjectLabels
+
     if (-not $IssueNumber) {
-        $IssueNumber = Read-Host "Enter issue number"
+        $projectId = (glab repo view --output json | ConvertFrom-Json).id
+        $createdAfter = (Get-Date).AddMonths(-2).ToUniversalTime().ToString("o")
+
+        $queryParams = @{
+            created_after = $createdAfter
+            order_by      = "created_at"
+            sort          = "desc"
+            per_page      = "100"
+        }
+        if ($labels) {
+            $queryParams.labels = ($labels -join ",")
+        }
+
+        $queryString = ($queryParams.GetEnumerator() | ForEach-Object {
+                "$($_.Key)=$([System.Uri]::EscapeDataString($_.Value))"
+            }) -join "&"
+
+        $glabArgs = @(
+            "api",
+            "/projects/$projectId/issues?$queryString"
+        )
+
+        $issueList = (& glab @glabArgs) | ConvertFrom-Json
+        $selectedIssue = $issueList | ForEach-Object { "$($_.iid)`t$($_.title)" } | fzf
+
+        if (-not $selectedIssue) {
+            Write-Output "No issue selected"
+            return
+        }
+
+        $issueParts = $selectedIssue -split "`t", 2
+        $IssueNumber = [int]$issueParts[0]
+        if (-not $Title -and $issueParts.Count -gt 1) {
+            $Title = $issueParts[1]
+        }
     }
 
     if (-not (Test-Path $TemplatePath)) {
@@ -133,12 +185,5 @@ function New-MergeRequest {
 }
 
 Set-Alias nmr New-MergeRequest
-
-
-
-
-
-
-
 
 
