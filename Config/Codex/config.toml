@@ -1,0 +1,11 @@
+model = "gpt-5.2-codex"
+model_reasoning_effort = "medium"
+personality = "pragmatic"
+[projects."/Users/rick.diaz/world50/transmute-platform"]
+trust_level = "trusted"
+
+[projects."/Users/rick.diaz/marvin"]
+trust_level = "trusted"
+
+[projects."/Users/rick.diaz/world50/transmute-mirror"]
+trust_level = "trusted"

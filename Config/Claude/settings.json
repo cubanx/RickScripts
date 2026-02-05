@@ -1,0 +1,37 @@
+{
+  "$schema": "https://json.schemastore.org/claude-code-settings.json",
+  "includeCoAuthoredBy": false,
+  "permissions": {
+    "allow": [
+      "Bash(glab:*)",
+      "mcp__serena__*",
+      "Bash(~/.claude/memory-castle/mc*)",
+      "mcp__context7__*",
+      "Bash(cat:*)",
+      "Bash(~/.claude/memory-castle/mc status)",
+      "Bash(~/.claude/memory-castle/mc store \"example_key\" \"This is a sample memory value\")",
+      "mcp__context7__resolve-library-id",
+      "mcp__context7__get-library-docs",
+      "Bash(~/.claude/memory-castle/mc get --help)",
+      "Bash(~/.claude/memory-castle/mc --help)",
+      "Bash(~/.claude/memory-castle/mc progress)",
+      "Bash(printf \"═══ MEMORY CASTLE DASHBOARD ═══\n\")",
+      "Bash(~/.claude/memory-castle/mc list:*)",
+      "Bash(printf \"Status: unknown (main)\n\")",
+      "Bash(printf \"Recent: example_key, firestore-emulator-rest-api, firestore-optimization-solution\n\")",
+      "Bash(printf:*)",
+      "Bash(prettier:*)",
+      "mcp__serena__check_onboarding_performed",
+      "mcp__serena__list_dir",
+      "Bash(~/.claude/memory-castle/mc get \"shared-context\")",
+      "Bash(npx prettier:*)"
+    ]
+  },
+  "statusLine": {
+    "type": "command",
+    "command": "~/.claude/statusline-command.sh"
+  },
+  "feedbackSurveyState": {
+    "lastShownTime": 1754071560088
+  }
+}

@@ -1,0 +1,15 @@
+{
+  "permissions": {
+    "allow": [
+      "Bash(ghostty:*)",
+      "Read(//Applications/Ghostty.app/**)",
+      "WebSearch",
+      "Bash(system_profiler:*)",
+      "WebFetch(domain:iterm2.com)",
+      "Bash(defaults read:*)",
+      "Bash(~/.claude/memory-castle/mc*)"
+    ],
+    "deny": [],
+    "ask": []
+  }
+}

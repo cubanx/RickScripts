@@ -1,0 +1,137 @@
+{
+  "$schema": "https://raw.githubusercontent.com/JanDeDobbeleer/oh-my-posh/main/themes/schema.json",
+  "console_title_template": "{{.PWD}}{{if .Root}} :: root{{end}}",
+  "iterm_features": ["current_dir"],
+  "blocks": [
+    {
+      "alignment": "left",
+      "segments": [
+        {
+          "background": "#546E7A",
+          "foreground": "#26C6DA",
+          "type": "text",
+          "template": "\ue0b1",
+          "style": "plain"
+        },
+        {
+          "background": "#546E7A",
+          "foreground": "#26C6DA",
+          "style": "plain",
+          "template": " \uf0e7 ",
+          "type": "root"
+        },
+        {
+          "background": "#546E7A",
+          "foreground": "#2AD4E6",
+          "cache": {
+            "duration": "0s"
+          },
+          "options": {
+            "mapped_locations": {
+              "~/world50/": "󰇧"
+            },
+            "style": "full"
+          },
+          "style": "plain",
+          "template": " {{ .Path }} ",
+          "type": "path"
+        },
+        {
+          "background": "#546E7A",
+          "foreground": "#26C6DA",
+          "type": "text",
+          "template": "\ue0b1 ",
+          "style": "plain"
+        },
+        {
+          "background": "#546E7A",
+          "foreground": "#E6EB57",
+          "style": "plain",
+          "template": "{{ .HEAD }}{{if .BranchStatus }} {{ .BranchStatus }}{{ end }}{{ if .Working.Changed }} {{ .Working.String }}{{ end }}{{ if and (.Working.Changed) (.Staging.Changed) }} {{ end }}{{ if .Staging.Changed }}{{ .Staging.String }}{{ end }}",
+          "type": "git",
+          "options": {
+            "fetch_status": true,
+            "fetch_upstream_icon": true
+          }
+        },
+        {
+          "background": "#546E7A",
+          "foreground": "#FFD54F",
+          "interactive": true,
+          "style": "plain",
+          "template": "{{ if .Env.POSH_PR_MR }} {{ .Env.POSH_PR_MR }}{{ end }}",
+          "type": "text",
+          "tooltip": "{{ if .Env.POSH_PR_MR_LINKS }}{{ range $i, $pair := (splitList \";\" .Env.POSH_PR_MR_LINKS) }}{{ $label := (index (splitList \"=\" $pair) 0) }}{{ $url := (index (splitList \"=\" $pair) 1) }}{{ if gt $i 0 }}\\n{{ end }}{{ $label }} -> {{ $url }}{{ end }}{{ end }}"
+        },
+        {
+          "cache": {
+            "duration": "0s"
+          },
+          "style": "diamond",
+          "template": " {{ if gt .Code 0 }}\ue20f \uf00d {{ .Code }}{{ else }}{{ end }}",
+          "background": "#546E7A",
+          "foreground": "#990000",
+          "type": "text"
+        },
+        {
+          "background": "transparent",
+          "foreground": "#546E7A",
+          "style": "plain",
+          "template": "\ue0b0",
+          "type": "text"
+        }
+      ],
+      "type": "prompt"
+    },
+    {
+      "alignment": "right",
+      "segments": [
+        {
+          "background": "#546E7A",
+          "foreground": "#D4E157",
+          "options": {
+            "time_format": "15:04:05"
+          },
+          "leading_diamond": "\ue0b2",
+          "style": "diamond",
+          "template": " {{ .CurrentDate | date .Format }} \uf017  ",
+          "type": "time"
+        },
+        {
+          "options": {
+            "style": "austin",
+            "threshold": 500
+          },
+          "cache": {
+            "duration": "0s"
+          },
+          "template": "{{ .FormattedMs }} <#26C6DA>\ue0b3</> ",
+          "background": "#546E7A",
+          "foreground": "#D4E157",
+          "powerline_symbol": "\ue0b0",
+          "type": "executiontime",
+          "style": "plain"
+        }
+      ],
+      "type": "prompt"
+    },
+    {
+      "alignment": "left",
+      "newline": true,
+      "segments": [
+        {
+          "foreground": "#D4E157",
+          "foreground_templates": ["{{ if gt .Code 0 }}#FF5252{{ end }}"],
+          "options": {
+            "always_enabled": true
+          },
+          "style": "plain",
+          "template": "\u276f ",
+          "type": "status"
+        }
+      ],
+      "type": "prompt"
+    }
+  ],
+  "version": 3
+}
