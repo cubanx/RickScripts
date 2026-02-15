@@ -96,14 +96,13 @@ function Clear-PoshPrMrCache {
 
 # Define extra paths to add
 $extraPathVariables = @(
-    $_asdf_shims,
     "${env:HOME}/.local/bin",
     "${env:HOME}/Library/pnpm"
 )
 
 # Add paths to PATH if they exist
 foreach ($path in $extraPathVariables) {
-    if (Test-Path $path) {
+    if ($path -and (Test-Path $path)) {
         $env:PATH = "${path}:${env:PATH}"
     }
 }
@@ -268,4 +267,7 @@ if (-not $__mise_pwsh_command_not_found) {
     __enable_mise_command_not_found
     Remove-Item -ErrorAction SilentlyContinue -Path Function:/__enable_mise_command_not_found
 }
+
+
+
 
