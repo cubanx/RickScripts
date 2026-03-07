@@ -29,11 +29,12 @@
         'New-ClaudeAgent',
         'Add-MeetingRoom',
         'Publish-Config',
-        'Open-MergeRequest'
+        'Open-MergeRequest',
+        'Edit-Config'
     )
     
     # Aliases to export from this module
-    AliasesToExport = @('sb', 'smr', 'rlb', 'cnm', 'opf', 'nmr', 'cmr', 'ggs', 'rhi', 'rhd', 'mis', 'ivs', 'ae1p', 'ge1p', 'nca', 'ivsuite', 'amr', 'omr')
+    AliasesToExport = @('sb', 'smr', 'rlb', 'cnm', 'opf', 'nmr', 'cmr', 'ggs', 'rhi', 'rhd', 'mis', 'ivs', 'ae1p', 'ge1p', 'nca', 'ivsuite', 'amr', 'omr', 'ec')
     
     # Variables to export from this module
     VariablesToExport = @('mem', 'gl', 'pro', 'auth', 'petl')
