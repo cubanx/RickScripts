@@ -30,7 +30,8 @@
         'Add-MeetingRoom',
         'Publish-Config',
         'Open-MergeRequest',
-        'Edit-Config'
+        'Edit-Config',
+        'Convert-MarkdownToPdf'
     )
     
     # Aliases to export from this module

@@ -1,0 +1,102 @@
+@page {
+  size: Letter;
+  margin: 0.65in 0.7in 0.8in;
+  @bottom-right {
+    content: "Page " counter(page) " / " counter(pages);
+    font-size: 9pt;
+    color: #6b7280;
+  }
+}
+
+:root {
+  --ink: #0f172a;
+  --muted: #64748b;
+  --line: #dbe3ee;
+  --soft: #f8fafc;
+  --brand: #0f62fe;
+  --accent: #111827;
+}
+
+html {
+  font-size: 11pt;
+}
+
+body {
+  font-family: "Inter", "Segoe UI", Arial, sans-serif;
+  color: var(--ink);
+  line-height: 1.45;
+}
+
+h1 {
+  font-size: 1.9rem;
+  letter-spacing: 0.02em;
+  margin: 0 0 0.35rem;
+  padding-bottom: 0.35rem;
+  border-bottom: 2px solid var(--brand);
+}
+
+h2 {
+  font-size: 1rem;
+  margin: 1.2rem 0 0.45rem;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+  color: var(--muted);
+}
+
+p {
+  margin: 0.3rem 0 0.55rem;
+}
+
+table {
+  width: 100%;
+  border-collapse: collapse;
+  margin: 0.9rem 0 1.1rem;
+  font-size: 0.96rem;
+}
+
+thead th {
+  text-align: left;
+  font-size: 0.74rem;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+  color: var(--muted);
+  background: var(--soft);
+  border-bottom: 2px solid var(--line);
+  padding: 0.5rem 0.55rem;
+}
+
+td {
+  border-bottom: 1px solid var(--line);
+  padding: 0.55rem;
+  vertical-align: top;
+}
+
+th:last-child,
+td:last-child {
+  text-align: right;
+  white-space: nowrap;
+}
+
+tr.total-row td,
+tr.grand-total td {
+  font-weight: 700;
+  color: var(--accent);
+  border-top: 2px solid var(--line);
+  background: #f1f5f9;
+}
+
+small,
+.muted {
+  color: var(--muted);
+}
+
+hr {
+  border: 0;
+  border-top: 1px solid var(--line);
+  margin: 1rem 0;
+}
+
+pre,
+code {
+  display: none;
+}
