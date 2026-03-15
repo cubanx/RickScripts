@@ -20,6 +20,7 @@ This is a PowerShell module called `RickScripts` containing personal development
 ### Available Functions and Aliases
 - `Switch-Branch` (`sb`) - Interactive branch switching with fzf
 - `Switch-MergeRequest` (`smr`) - Interactive MR checkout with fzf  
+- `Switch-CodexWorktree` (`scw`) - Interactive Codex worktree switching with fzf
 - `Remove-LocalBranchesThatAreMerged` (`rlb`) - Clean up merged branches
 - `Clear-NodeModules` (`cnm`) - Remove node_modules and reinstall with pnpm
 - `Open-ProjectFolder` (`opf`) - Open directory in VS Code using fzf
@@ -54,6 +55,7 @@ The module follows PowerShell best practices:
 ### Git Workflow Functions
 - `Switch-Branch` - Branch management with remote tracking
 - `Switch-MergeRequest` - MR-based development workflow
+- `Switch-CodexWorktree` - Codex worktree selection and directory switching
 - `Remove-LocalBranchesThatAreMerged` - Branch cleanup
 - `New-MergeRequest` - Automated MR creation with templates
 - `Get-GitStash` - Stash management
