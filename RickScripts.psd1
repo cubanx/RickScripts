@@ -32,7 +32,8 @@
         'Open-MergeRequest',
         'Edit-Config',
         'Convert-MarkdownToPdf',
-        'Switch-CodexWorktree'
+        'Switch-CodexWorktree',
+        'Repair-UnsignedCommits'
     )
     
     # Aliases to export from this module
