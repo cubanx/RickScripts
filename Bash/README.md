@@ -58,6 +58,7 @@ nmr --<TAB>         # Shows all new_merge_request parameters
 ### Development Utilities
 
 - **`clear_node_modules` (alias: `cnm`)** - Remove node_modules and reinstall with pnpm
+- **`jira_move_item_to_board` (alias: `jmib`)** - Move a Jira issue from backlog onto a Jira board
 - **`open_project_folder` (alias: `opf`)** - Open directory in VS Code using fzf
 
 ### History Management
@@ -89,6 +90,11 @@ The following package filter variables are exported for World50 applications:
 ## Usage Examples
 
 ```bash
+# Move a Jira issue onto board 1 using jira-cli compatible env vars
+jira_move_item_to_board FEDEV-560
+jira_move_item_to_board FEDEV-560 --board-id 7
+jira_move_item_to_board FEDEV-560 --dry-run
+
 # Switch to a different branch interactively
 sb
 
@@ -122,6 +128,7 @@ Each function is implemented in its own `.sh` file for modularity:
 
 - `clear-node-modules.sh`
 - `get-git-stash.sh`
+- `jira-move-item-to-board.sh`
 - `move-issue-state.sh`
 - `new-merge-request.sh`
 - `open-project-folder.sh`
