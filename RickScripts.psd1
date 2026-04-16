@@ -30,6 +30,7 @@
         'Add-MeetingRoom',
         'Publish-Config',
         'Open-MergeRequest',
+        'Get-LatestRun',
         'Edit-Config',
         'Convert-MarkdownToPdf',
         'Switch-CodexWorktree',
@@ -39,7 +40,7 @@
     )
     
     # Aliases to export from this module
-    AliasesToExport = @('sb', 'smr', 'rlb', 'cnm', 'opf', 'nmr', 'cmr', 'ggs', 'rhi', 'rhd', 'mis', 'ivs', 'ae1p', 'ge1p', 'nca', 'ivsuite', 'amr', 'omr', 'ec', 'scw', 'jmib')
+    AliasesToExport = @('sb', 'smr', 'rlb', 'cnm', 'opf', 'nmr', 'cmr', 'ggs', 'rhi', 'rhd', 'mis', 'ivs', 'ae1p', 'ge1p', 'nca', 'ivsuite', 'amr', 'omr', 'glr', 'ec', 'scw', 'jmib', 'sjb')
     
     # Variables to export from this module
     VariablesToExport = @('mem', 'gl', 'pro', 'auth', 'petl')
