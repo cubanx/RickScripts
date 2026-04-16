@@ -3,7 +3,7 @@ function Show-JiraBoard {
     param(
         [string[]]$Columns = @('In Progress', 'In Review'),
         [switch]$IncludeUpNext,
-        [switch]$Mine,
+        [switch]$All,
         [int]$MaxResults = 200,
         [switch]$Raw
     )
@@ -18,7 +18,7 @@ function Show-JiraBoard {
         $jiraArguments += @('-s', $columnName)
     }
 
-    if ($Mine) {
+    if (-not $All) {
         $currentUser = (& jira me).Trim()
         if (-not $currentUser) {
             throw 'Could not resolve current Jira user from `jira me`.'
@@ -37,6 +37,169 @@ function Show-JiraBoard {
         $boardIssues = @($rawJson | ConvertFrom-Json)
     }
 
+    function Get-JiraCliConfigValue {
+        param(
+            [Parameter(Mandatory = $true)]
+            [string[]]$Names
+        )
+
+        $configPath = Join-Path $HOME '.config/.jira/.config.yml'
+        if (-not (Test-Path $configPath)) {
+            return $null
+        }
+
+        foreach ($line in Get-Content $configPath) {
+            if ($line -notmatch '^\s*(?<key>[^:#]+):\s*(?<value>.+?)\s*$') {
+                continue
+            }
+
+            $key = $Matches.key.Trim()
+            if ($key -notin $Names) {
+                continue
+            }
+
+            return $Matches.value.Trim().Trim('"').Trim("'").TrimEnd('/')
+        }
+
+        return $null
+    }
+
+    function Get-JiraApiCredential {
+        $baseUrl = $env:JIRA_BASE_URL
+        if (-not $baseUrl) {
+            $baseUrl = Get-JiraCliConfigValue -Names @('endpoint', 'server', 'url')
+        }
+
+        $email = $env:JIRA_EMAIL
+        if (-not $email) {
+            $email = (& jira me).Trim()
+        }
+
+        $apiToken = $env:JIRA_API_TOKEN
+        if (-not $apiToken -and (Test-Path "$HOME/.jira-env")) {
+            foreach ($line in Get-Content "$HOME/.jira-env") {
+                if ($line -notmatch '^\s*JIRA_KEYCHAIN_SERVICE=(?<service>.+?)\s*$') {
+                    continue
+                }
+
+                $apiToken = security find-generic-password -a $env:USER -s $Matches.service -w
+                break
+            }
+        }
+
+        if (-not $baseUrl -or -not $email -or -not $apiToken) {
+            return $null
+        }
+
+        [pscustomobject]@{
+            BaseUrl  = $baseUrl.TrimEnd('/')
+            Email    = $email
+            ApiToken = $apiToken
+        }
+    }
+
+    $jiraApiCredential = Get-JiraApiCredential
+
+    function New-TerminalHyperlink {
+        param(
+            [Parameter(Mandatory = $true)]
+            [string]$Text,
+
+            [string]$Url
+        )
+
+        if ([string]::IsNullOrWhiteSpace($Url)) {
+            return $Text
+        }
+
+        $escape = [char]27
+        return "$escape]8;;$Url$escape\$Text$escape]8;;$escape\"
+    }
+
+    function Get-JiraPullRequestStatus {
+        param(
+            [Parameter(Mandatory = $true)]
+            $Issue
+        )
+
+        $issueJson = & jira issue view $Issue.key --raw
+        if ($LASTEXITCODE -ne 0 -or [string]::IsNullOrWhiteSpace($issueJson)) {
+            return [pscustomobject]@{
+                Text = 'PR: unknown'
+                Url  = $null
+            }
+        }
+
+        $issueDetail = $issueJson | ConvertFrom-Json
+        $developmentField = [string]$issueDetail.fields.customfield_10000
+
+        if ([string]::IsNullOrWhiteSpace($developmentField) -or $developmentField -eq '{}') {
+            return [pscustomobject]@{
+                Text = 'PR: none'
+                Url  = $null
+            }
+        }
+
+        if ($developmentField -notmatch 'pullrequest') {
+            return [pscustomobject]@{
+                Text = 'PR: none'
+                Url  = $null
+            }
+        }
+
+        $count = $null
+        $state = $null
+
+        if ($developmentField -match 'count\\":(?<count>\d+)') {
+            $count = [int]$Matches.count
+        }
+        elseif ($developmentField -match 'stateCount=(?<count>\d+)') {
+            $count = [int]$Matches.count
+        }
+
+        if ($developmentField -match 'state\\":\\"(?<state>[^\\"]+)') {
+            $state = $Matches.state.ToLowerInvariant()
+        }
+        elseif ($developmentField -match 'state=(?<state>[A-Z_]+)') {
+            $state = $Matches.state.ToLowerInvariant()
+        }
+
+        $url = $null
+        if ($jiraApiCredential -and $issueDetail.id) {
+            $pair = "{0}:{1}" -f $jiraApiCredential.Email, $jiraApiCredential.ApiToken
+            $encoded = [Convert]::ToBase64String([System.Text.Encoding]::UTF8.GetBytes($pair))
+            $detailUri = '{0}/rest/dev-status/latest/issue/detail?issueId={1}&applicationType=GitHub&dataType=pullrequest' -f $jiraApiCredential.BaseUrl, $issueDetail.id
+
+            try {
+                $detail = Invoke-RestMethod -Method GET -Uri $detailUri -Headers @{
+                    Authorization = "Basic $encoded"
+                    Accept        = 'application/json'
+                } -ErrorAction Stop
+
+                $pullRequests = @($detail.detail | ForEach-Object { $_.pullRequests } | Where-Object { $_ })
+                $url = $pullRequests | Select-Object -ExpandProperty url -First 1
+            }
+            catch {
+                $url = $null
+            }
+        }
+
+        $text = if ($count -and $state) {
+            "PR: $count $state"
+        }
+        elseif ($count) {
+            "PR: $count connected"
+        }
+        else {
+            'PR: connected'
+        }
+
+        [pscustomobject]@{
+            Text = $text
+            Url  = $url
+        }
+    }
+
     $cards = foreach ($issue in $boardIssues) {
         $columnName = $issue.fields.status.name
 
@@ -51,6 +214,7 @@ function Show-JiraBoard {
             Assignee = $issue.fields.assignee.displayName
             Priority = $issue.fields.priority.name
             Status   = $issue.fields.status.name
+            PullRequest = Get-JiraPullRequestStatus -Issue $issue
         }
     }
 
@@ -110,15 +274,19 @@ function Show-JiraBoard {
                 $assignee = if ($card.Assignee) { $card.Assignee } else { 'Unassigned' }
                 $summary = Format-JiraBoardCellText -Text $card.Summary -Width $summaryWidth
                 $assigneeDisplay = Format-JiraBoardCellText -Text $assignee -Width $assigneeWidth
+                $pullRequestText = Format-JiraBoardCellText -Text $card.PullRequest.Text -Width $contentWidth
+                $pullRequestDisplay = New-TerminalHyperlink -Text $pullRequestText -Url $card.PullRequest.Url
 
                 $topBorder = '+' + ('-' * $innerWidth) + '+'
                 $emptyLine = '|' + (' ' * $innerWidth) + '|'
                 $titleLine = '| ' + (Format-JiraBoardCellText -Text ('{0} {1}' -f $card.Key, $summary) -Width $contentWidth) + ' |'
                 $assigneeLine = '| ' + (Format-JiraBoardCellText -Text $assigneeDisplay -Width $contentWidth) + ' |'
+                $pullRequestLine = '| ' + $pullRequestDisplay + ' |'
 
                 $lines.Add($topBorder)
                 $lines.Add($titleLine)
                 $lines.Add($assigneeLine)
+                $lines.Add($pullRequestLine)
                 $lines.Add($emptyLine)
                 $lines.Add($topBorder)
                 $lines.Add('')
@@ -142,3 +310,5 @@ function Show-JiraBoard {
         Write-Host ($row -join $gutter)
     }
 }
+
+Set-Alias sjb Show-JiraBoard
