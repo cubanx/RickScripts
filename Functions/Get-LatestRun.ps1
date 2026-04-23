@@ -10,22 +10,45 @@ function Get-LatestRun {
         )
 
         switch ($Status) {
-            'pass' { return '✅' }
-            'fail' { return '❌' }
-            'cancel' { return '🚫' }
-            'skipping' { return '⏭️' }
-            'pending' { return '🟡' }
-            'success' { return '✅' }
-            'failure' { return '❌' }
-            'cancelled' { return '🚫' }
-            'skipped' { return '⏭️' }
-            'neutral' { return '⚪' }
-            'timed_out' { return '⏰' }
-            'action_required' { return '⚠️' }
-            'in_progress' { return '🟡' }
-            'queued' { return '🟣' }
-            'pending' { return '🟣' }
-            default { return '❔' }
+            'pass' { return '' }
+            'fail' { return '' }
+            'cancel' { return '' }
+            'skipping' { return '󰒭' }
+            'pending' { return '' }
+            'success' { return '' }
+            'failure' { return '' }
+            'cancelled' { return '' }
+            'skipped' { return '󰒭' }
+            'neutral' { return '' }
+            'timed_out' { return '󰔟' }
+            'action_required' { return '' }
+            'in_progress' { return '' }
+            'queued' { return '' }
+            default { return '' }
+        }
+    }
+
+    function Get-RunStatusColor {
+        param(
+            [string]$Status
+        )
+
+        switch ($Status) {
+            'pass' { return 'Green' }
+            'success' { return 'Green' }
+            'fail' { return 'Red' }
+            'failure' { return 'Red' }
+            'cancel' { return 'DarkGray' }
+            'cancelled' { return 'DarkGray' }
+            'skipping' { return 'DarkGray' }
+            'skipped' { return 'DarkGray' }
+            'neutral' { return 'Gray' }
+            'timed_out' { return 'DarkYellow' }
+            'action_required' { return 'Yellow' }
+            'pending' { return 'Yellow' }
+            'in_progress' { return 'Yellow' }
+            'queued' { return 'DarkYellow' }
+            default { return 'Gray' }
         }
     }
 
@@ -66,6 +89,10 @@ function Get-LatestRun {
             return $null
         }
 
+        if ($completedAtValue -eq '0001-01-01T00:00:00Z') {
+            return $null
+        }
+
         try {
             $startedAt = [DateTimeOffset]::Parse($startedAtValue)
             $completedAt = [DateTimeOffset]::Parse($completedAtValue)
@@ -75,6 +102,10 @@ function Get-LatestRun {
         }
 
         $duration = $completedAt - $startedAt
+        if ($duration.TotalSeconds -lt 0) {
+            return $null
+        }
+
         if ($duration.TotalSeconds -lt 60) {
             return ("{0}s" -f [Math]::Max([int][Math]::Round($duration.TotalSeconds), 0))
         }
@@ -101,13 +132,39 @@ function Get-LatestRun {
         return
     }
 
-    $checksJson = gh pr checks $Branch --json name,state,workflow,bucket,startedAt,completedAt,link 2>$null
-    if ($LASTEXITCODE -ne 0 -or -not $checksJson) {
+    $checksOutput = gh pr checks $Branch --json name,state,workflow,bucket,startedAt,completedAt,link 2>&1
+    $ghExitCode = $LASTEXITCODE
+
+    if ($ghExitCode -eq 1 -and $checksOutput -match 'no pull requests found for branch') {
+        Write-Output "No PR checks found for branch '$Branch'"
+        return
+    }
+
+    if ($ghExitCode -ne 0 -and $ghExitCode -ne 8) {
         Write-Error "Failed to load PR checks for branch '$Branch'."
         return
     }
 
-    $checks = $checksJson | ConvertFrom-Json
+    $checksJson = if ($checksOutput -is [System.Array]) {
+        $checksOutput -join [Environment]::NewLine
+    }
+    else {
+        [string]$checksOutput
+    }
+
+    if (-not $checksJson) {
+        Write-Output "No PR checks found for branch '$Branch'"
+        return
+    }
+
+    try {
+        $checks = $checksJson | ConvertFrom-Json -ErrorAction Stop
+    }
+    catch {
+        Write-Output "Could not parse PR checks for branch '$Branch'"
+        return
+    }
+
     if (-not $checks) {
         Write-Output "No PR checks found for branch '$Branch'"
         return
@@ -126,6 +183,7 @@ function Get-LatestRun {
 
         [PSCustomObject]@{
             Workflow = if ($check.workflow) { $check.workflow } else { 'Other' }
+            Status = $statusValue
             Icon = Get-RunStatusIcon -Status $statusValue
             Check = $check.name
             Result = $resultText
@@ -135,8 +193,16 @@ function Get-LatestRun {
     foreach ($group in ($rows | Group-Object Workflow)) {
         Write-Host $group.Name -ForegroundColor Cyan
 
+        $checkWidth = (($group.Group | ForEach-Object { $_.Check.Length } | Measure-Object -Maximum).Maximum)
+        if (-not $checkWidth) {
+            $checkWidth = 0
+        }
+
         foreach ($row in $group.Group) {
-            "{0,-4} {1,-30} {2}" -f $row.Icon, $row.Check, $row.Result
+            $paddedCheck = $row.Check.PadRight($checkWidth)
+            $iconColor = Get-RunStatusColor -Status $row.Status
+            Write-Host $row.Icon -ForegroundColor $iconColor -NoNewline
+            Write-Host ("  {0}  {1}" -f $paddedCheck, $row.Result)
         }
     }
 }
