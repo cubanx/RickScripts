@@ -27,15 +27,51 @@ function Show-JiraBoard {
         $jiraArguments += @('-a', $currentUser)
     }
 
+    function ConvertFrom-JiraIssueJson {
+        param(
+            [AllowEmptyString()]
+            [string]$Json
+        )
+
+        if ([string]::IsNullOrWhiteSpace($Json)) {
+            return [pscustomobject]@{
+                Success = $true
+                Value   = @()
+                Error   = $null
+            }
+        }
+
+        try {
+            return [pscustomobject]@{
+                Success = $true
+                Value   = ($Json | ConvertFrom-Json -ErrorAction Stop)
+                Error   = $null
+            }
+        }
+        catch {
+            return [pscustomobject]@{
+                Success = $false
+                Value   = $null
+                Error   = $_
+            }
+        }
+    }
+
     $rawJson = & jira @jiraArguments
     if ($LASTEXITCODE -ne 0) {
         throw "jira issue list failed with exit code $LASTEXITCODE"
     }
 
-    $boardIssues = @()
-    if (-not [string]::IsNullOrWhiteSpace($rawJson)) {
-        $boardIssues = @($rawJson | ConvertFrom-Json)
+    $boardIssueParse = ConvertFrom-JiraIssueJson -Json $rawJson
+    if (-not $boardIssueParse.Success) {
+        $parseError = $boardIssueParse.Error | Select-Object -First 1
+        $parseMessage = ([string]$parseError -split '\r?\n' | Select-Object -First 1)
+
+        Write-Error "Could not parse Jira issue list JSON: $parseMessage"
+        return
     }
+
+    $boardIssues = @($boardIssueParse.Value)
 
     function Get-JiraCliConfigValue {
         param(
@@ -130,7 +166,15 @@ function Show-JiraBoard {
             }
         }
 
-        $issueDetail = $issueJson | ConvertFrom-Json
+        $issueDetailParse = ConvertFrom-JiraIssueJson -Json $issueJson
+        if (-not $issueDetailParse.Success) {
+            return [pscustomobject]@{
+                Text = 'PR: unknown'
+                Url  = $null
+            }
+        }
+
+        $issueDetail = $issueDetailParse.Value
         $developmentField = [string]$issueDetail.fields.customfield_10000
 
         if ([string]::IsNullOrWhiteSpace($developmentField) -or $developmentField -eq '{}') {
