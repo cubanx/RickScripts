@@ -16,6 +16,10 @@ function Publish-Config {
             Destination = "$HOME/.config/powershell"
         },
         @{
+            Source      = Join-Path $configRoot 'PowerShell/Profile.d'
+            Destination = "$HOME/.config/powershell/Profile.d"
+        },
+        @{
             Source      = Join-Path $configRoot 'PowerShell/powerlevel10k_classic-custom.omp.json'
             Destination = "$HOME"
         },
@@ -95,5 +99,4 @@ function Publish-Config {
         }
     }
 }
-
 
