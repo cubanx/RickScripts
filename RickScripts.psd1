@@ -34,13 +34,14 @@
         'Edit-Config',
         'Convert-MarkdownToPdf',
         'Switch-CodexWorktree',
+        'Remove-StaleCodexWorktree',
         'Repair-UnsignedCommits',
         'Move-JiraItemToBoard',
         'Show-JiraBoard'
     )
     
     # Aliases to export from this module
-    AliasesToExport = @('sb', 'smr', 'rlb', 'cnm', 'opf', 'nmr', 'cmr', 'ggs', 'rhi', 'rhd', 'mis', 'ivs', 'ae1p', 'ge1p', 'nca', 'ivsuite', 'amr', 'omr', 'glr', 'ec', 'scw', 'jmib', 'sjb')
+    AliasesToExport = @('sb', 'smr', 'rlb', 'cnm', 'opf', 'nmr', 'cmr', 'ggs', 'rhi', 'rhd', 'mis', 'ivs', 'ae1p', 'ge1p', 'nca', 'ivsuite', 'amr', 'omr', 'glr', 'ec', 'scw', 'rcw', 'jmib', 'sjb')
     
     # Variables to export from this module
     VariablesToExport = @('mem', 'gl', 'pro', 'auth', 'petl')
