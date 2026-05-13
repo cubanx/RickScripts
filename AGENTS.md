@@ -25,6 +25,7 @@ This is a PowerShell module called `RickScripts` containing personal development
 - `Clear-NodeModules` (`cnm`) - Remove node_modules and reinstall with pnpm
 - `Open-ProjectFolder` (`opf`) - Open directory in VS Code using fzf
 - `New-MergeRequest` (`nmr`) - Create GitLab MR with template
+- `Get-GitWorktrees` - List registered Git worktrees from cached root repos under `~/code`
 - `Get-GitStash` (`ggs`) - Interactive stash selection and pop with fzf
 - `Remove-HistoryItem` (`rhi`) - Remove items from PowerShell history interactively
 - `Remove-HistoryDuplicates` (`rhd`) - Remove duplicate entries from PowerShell history
@@ -58,6 +59,7 @@ The module follows PowerShell best practices:
 - `Switch-GitWorktree` - Git worktree selection and directory switching
 - `Remove-LocalBranchesThatAreMerged` - Branch cleanup
 - `New-MergeRequest` - Automated MR creation with templates
+- `Get-GitWorktrees` - Git worktree inventory from cached root repositories
 - `Get-GitStash` - Stash management
 - `Move-IssueState` - Move GitLab issues between workflow states
 

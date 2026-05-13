@@ -17,6 +17,7 @@
         'Open-ProjectFolder',
         'New-MergeRequest',
         'Copy-MergeRequest',
+        'Get-GitWorktrees',
         'Get-GitStash',
         'Remove-HistoryItem',
         'Remove-HistoryDuplicates',
