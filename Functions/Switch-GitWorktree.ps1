@@ -1,4 +1,4 @@
-function Switch-CodexWorktree {
+function Switch-GitWorktree {
     [CmdletBinding()]
     param(
         [string]$WorktreeRoot = "~/.codex/worktrees"
@@ -109,4 +109,4 @@ function Switch-CodexWorktree {
     Push-Location -LiteralPath $selectedEntry.Path
 }
 
-Set-Alias scw Switch-CodexWorktree
+Set-Alias sgw Switch-GitWorktree
