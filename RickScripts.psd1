@@ -38,11 +38,12 @@
         'Remove-StaleCodexWorktree',
         'Repair-UnsignedCommits',
         'Move-JiraItemToBoard',
-        'Show-JiraBoard'
+        'Show-JiraBoard',
+        'Save-DotfilesChanges'
     )
     
     # Aliases to export from this module
-    AliasesToExport = @('sb', 'smr', 'rlb', 'cnm', 'opf', 'nmr', 'cmr', 'ggs', 'rhi', 'rhd', 'mis', 'ivs', 'ae1p', 'ge1p', 'nca', 'ivsuite', 'amr', 'omr', 'glr', 'ec', 'sgw', 'rcw', 'jmib', 'sjb')
+    AliasesToExport = @('sb', 'smr', 'rlb', 'cnm', 'opf', 'nmr', 'cmr', 'ggs', 'rhi', 'rhd', 'mis', 'ivs', 'ae1p', 'ge1p', 'nca', 'ivsuite', 'amr', 'omr', 'glr', 'ec', 'sgw', 'rcw', 'jmib', 'sjb', 'sdf')
     
     # Variables to export from this module
     VariablesToExport = @('mem', 'gl', 'pro', 'auth', 'petl')
