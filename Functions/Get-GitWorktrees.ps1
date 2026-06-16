@@ -107,6 +107,46 @@ function Get-GitWorktrees {
         return @(ConvertFrom-GitWorktreePorcelain -RepositoryRoot $RepositoryRoot -Lines $worktreeLines)
     }
 
+    function Add-CurrentGitRepositoryRoot {
+        param(
+            [System.Collections.Generic.HashSet[string]]$RepositoryRoots,
+            [string[]]$ScanRoots
+        )
+
+        $currentRepositoryRoot = git rev-parse --show-toplevel 2>$null
+        if ($LASTEXITCODE -ne 0 -or -not $currentRepositoryRoot) {
+            return $false
+        }
+
+        $currentRepositoryRoot = Get-NormalizedPath -Path $currentRepositoryRoot
+        $isUnderScanRoot = $false
+        foreach ($scanRoot in $ScanRoots) {
+            if (
+                [string]::Equals($currentRepositoryRoot, $scanRoot, $pathComparison) -or
+                $currentRepositoryRoot.StartsWith($scanRoot + [System.IO.Path]::DirectorySeparatorChar, $pathComparison)
+            ) {
+                $isUnderScanRoot = $true
+                break
+            }
+        }
+
+        if (-not $isUnderScanRoot) {
+            return $false
+        }
+
+        return $RepositoryRoots.Add($currentRepositoryRoot)
+    }
+
+    function Save-RepositoryRootCache {
+        param(
+            [System.Collections.Generic.HashSet[string]]$RepositoryRoots,
+            [string]$CachePath
+        )
+
+        New-Item -ItemType Directory -Path (Split-Path -Parent $CachePath) -Force | Out-Null
+        @($RepositoryRoots | Sort-Object) | ConvertTo-Json | Set-Content -LiteralPath $CachePath -Encoding UTF8
+    }
+
     $pathComparison = [System.StringComparison]::Ordinal
     $pathComparer = [System.StringComparer]::Ordinal
     if ([System.IO.Path]::DirectorySeparatorChar -eq '\') {
@@ -131,6 +171,10 @@ function Get-GitWorktrees {
                 [void]$repositoryRoots.Add((Get-NormalizedPath -Path $repositoryRoot))
             }
         }
+
+        if (Add-CurrentGitRepositoryRoot -RepositoryRoots $repositoryRoots -ScanRoots $resolvedRoots) {
+            Save-RepositoryRootCache -RepositoryRoots $repositoryRoots -CachePath $cachePath
+        }
     }
 
     if ($repositoryRoots.Count -eq 0) {
@@ -147,8 +191,7 @@ function Get-GitWorktrees {
         }
 
         if ($useCache) {
-            New-Item -ItemType Directory -Path (Split-Path -Parent $cachePath) -Force | Out-Null
-            @($repositoryRoots | Sort-Object) | ConvertTo-Json | Set-Content -LiteralPath $cachePath -Encoding UTF8
+            Save-RepositoryRootCache -RepositoryRoots $repositoryRoots -CachePath $cachePath
         }
     }
 
