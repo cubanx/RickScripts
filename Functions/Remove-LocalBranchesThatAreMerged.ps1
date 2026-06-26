@@ -200,16 +200,17 @@ function Remove-LocalBranchesThatAreMerged {
             [object[]]$Assessments
         )
 
-        if (-not $Assessments) {
+        $selectableAssessments = @($Assessments | Where-Object { $_.CanDelete -and $_.Status -ne 'auto' })
+        if (-not $selectableAssessments) {
             return @()
         }
 
-        $branchWidth = [Math]::Max(6, (($Assessments | ForEach-Object { $_.Branch.Length } | Measure-Object -Maximum).Maximum))
-        $statusWidth = [Math]::Max(6, (($Assessments | ForEach-Object { $_.Status.Length } | Measure-Object -Maximum).Maximum))
-        $deleteWidth = [Math]::Max(2, (($Assessments | ForEach-Object { $_.DeleteFlag.Length } | Measure-Object -Maximum).Maximum))
-        $dateWidth = [Math]::Max(10, (($Assessments | ForEach-Object { $_.LastCommitDate.Length } | Measure-Object -Maximum).Maximum))
-        $remoteWidth = [Math]::Max(6, (($Assessments | ForEach-Object { $_.RemoteState.Length } | Measure-Object -Maximum).Maximum))
-        $deltaWidth = [Math]::Max(5, (($Assessments | ForEach-Object { $_.MainDelta.Length } | Measure-Object -Maximum).Maximum))
+        $branchWidth = [Math]::Max(6, (($selectableAssessments | ForEach-Object { $_.Branch.Length } | Measure-Object -Maximum).Maximum))
+        $statusWidth = [Math]::Max(6, (($selectableAssessments | ForEach-Object { $_.Status.Length } | Measure-Object -Maximum).Maximum))
+        $deleteWidth = [Math]::Max(2, (($selectableAssessments | ForEach-Object { $_.DeleteFlag.Length } | Measure-Object -Maximum).Maximum))
+        $dateWidth = [Math]::Max(10, (($selectableAssessments | ForEach-Object { $_.LastCommitDate.Length } | Measure-Object -Maximum).Maximum))
+        $remoteWidth = [Math]::Max(6, (($selectableAssessments | ForEach-Object { $_.RemoteState.Length } | Measure-Object -Maximum).Maximum))
+        $deltaWidth = [Math]::Max(5, (($selectableAssessments | ForEach-Object { $_.MainDelta.Length } | Measure-Object -Maximum).Maximum))
         $header = "{0}  {1}  {2}  {3}  {4}  {5}  {6}" -f `
             'Branch'.PadRight($branchWidth), `
             'Status'.PadRight($statusWidth), `
@@ -219,7 +220,7 @@ function Remove-LocalBranchesThatAreMerged {
             'Delta'.PadRight($deltaWidth), `
             'Reason'
 
-        $selectedLines = $Assessments |
+        $selectedLines = $selectableAssessments |
             ForEach-Object {
                 $deleteLabel = if ($_.DeleteFlag) { $_.DeleteFlag } else { '--' }
                 "{0}  {1}  {2}  {3}  {4}  {5}  {6}" -f `
@@ -247,7 +248,7 @@ function Remove-LocalBranchesThatAreMerged {
             $selectedByBranch[$branch] = $true
         }
 
-        return @($Assessments | Where-Object { $selectedByBranch.ContainsKey($_.Branch) })
+        return @($selectableAssessments | Where-Object { $selectedByBranch.ContainsKey($_.Branch) })
     }
 
     function Remove-BranchCandidate {
@@ -402,10 +403,10 @@ function Remove-LocalBranchesThatAreMerged {
         $nonCandidates += New-BranchAssessment `
             -Branch $branch `
             -Status $status `
-            -DeleteFlag '-D' `
+            -DeleteFlag '' `
             -Reason $reason `
             -Tier 'Manual' `
-            -CanDelete $true `
+            -CanDelete $false `
             -LastCommitDate $metadata.LastCommitDate `
             -RemoteState $metadata.RemoteState `
             -MainDelta $metadata.MainDelta
