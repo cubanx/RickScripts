@@ -117,6 +117,25 @@ function Get-LatestRun {
         return ("{0}h {1}m" -f [Math]::Floor($duration.TotalHours), $duration.Minutes)
     }
 
+    function ConvertFrom-GhJsonOutput {
+        param(
+            $Output
+        )
+
+        $json = if ($Output -is [System.Array]) {
+            $Output -join [Environment]::NewLine
+        }
+        else {
+            [string]$Output
+        }
+
+        if (-not $json) {
+            return $null
+        }
+
+        $json | ConvertFrom-Json -ErrorAction Stop
+    }
+
     if (-not (Get-Command gh -ErrorAction SilentlyContinue)) {
         Write-Error "GitHub CLI ('gh') is required."
         return
@@ -136,37 +155,70 @@ function Get-LatestRun {
     $ghExitCode = $LASTEXITCODE
 
     if ($ghExitCode -eq 1 -and $checksOutput -match 'no pull requests found for branch') {
-        Write-Output "No PR checks found for branch '$Branch'"
-        return
-    }
+        $runsOutput = gh run list --branch $Branch --limit 20 --json workflowName,displayTitle,status,conclusion,startedAt,updatedAt 2>&1
+        $ghExitCode = $LASTEXITCODE
 
-    if ($ghExitCode -ne 0 -and $ghExitCode -ne 8) {
-        Write-Error "Failed to load PR checks for branch '$Branch'."
-        return
-    }
+        if ($ghExitCode -ne 0) {
+            Write-Error "Failed to load workflow runs for branch '$Branch'."
+            return
+        }
 
-    $checksJson = if ($checksOutput -is [System.Array]) {
-        $checksOutput -join [Environment]::NewLine
+        try {
+            $runs = ConvertFrom-GhJsonOutput -Output $runsOutput
+        }
+        catch {
+            Write-Output "Could not parse workflow runs for branch '$Branch'"
+            return
+        }
+
+        if (-not $runs) {
+            Write-Output "No workflow runs found for branch '$Branch'"
+            return
+        }
+
+        $seenWorkflows = @{}
+        $checks = foreach ($run in $runs) {
+            $workflowName = if ($run.workflowName) { $run.workflowName } elseif ($run.name) { $run.name } else { 'Other' }
+
+            if ($seenWorkflows.ContainsKey($workflowName)) {
+                continue
+            }
+
+            $seenWorkflows[$workflowName] = $true
+            $statusValue = if ($run.conclusion) { $run.conclusion } else { $run.status }
+
+            [PSCustomObject]@{
+                workflow = $workflowName
+                bucket = $statusValue
+                state = $statusValue
+                name = if ($run.displayTitle) { $run.displayTitle } elseif ($run.name) { $run.name } else { $workflowName }
+                startedAt = $run.startedAt
+                completedAt = if ($run.status -eq 'completed') { $run.updatedAt } else { $null }
+            }
+        }
     }
     else {
-        [string]$checksOutput
-    }
+        if ($ghExitCode -ne 0 -and $ghExitCode -ne 8) {
+            Write-Error "Failed to load PR checks for branch '$Branch'."
+            return
+        }
 
-    if (-not $checksJson) {
-        Write-Output "No PR checks found for branch '$Branch'"
-        return
-    }
+        try {
+            $checks = ConvertFrom-GhJsonOutput -Output $checksOutput
+        }
+        catch {
+            Write-Output "Could not parse PR checks for branch '$Branch'"
+            return
+        }
 
-    try {
-        $checks = $checksJson | ConvertFrom-Json -ErrorAction Stop
-    }
-    catch {
-        Write-Output "Could not parse PR checks for branch '$Branch'"
-        return
+        if (-not $checks) {
+            Write-Output "No PR checks found for branch '$Branch'"
+            return
+        }
     }
 
     if (-not $checks) {
-        Write-Output "No PR checks found for branch '$Branch'"
+        Write-Output "No runs found for branch '$Branch'"
         return
     }
 
