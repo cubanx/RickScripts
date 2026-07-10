@@ -13,22 +13,32 @@ function Switch-GitWorktree {
     }
 
     $allWorktrees = @(Get-GitWorktrees -Roots $Roots -RefreshCache:$RefreshCache)
-    $hiddenWorktreeCount = @($allWorktrees | Where-Object { $_.IsBare -or $_.IsDetached }).Count
+    $hiddenWorktreeCount = @($allWorktrees | Where-Object { $_.IsBare }).Count
     $entries = $allWorktrees |
-        Where-Object {
-            if ($_.IsBare -or $_.IsDetached) {
-                $false
+        ForEach-Object {
+            if ($_.IsBare) {
                 return
+            }
+
+            $branch = $_.Branch
+            if ($_.IsDetached) {
+                $head = if ($_.Head) { $_.Head.Trim() } else { "" }
+                $shortHead = if ($head.Length -gt 7) { $head.Substring(0, 7) } else { $head }
+                if (-not $shortHead) {
+                    $shortHead = "detached"
+                }
+                $branch = "(detached $shortHead)"
             }
 
             $worktreePath = [System.IO.Path]::GetFullPath($_.Path).TrimEnd([System.IO.Path]::DirectorySeparatorChar, [System.IO.Path]::AltDirectorySeparatorChar)
             $repositoryRoot = [System.IO.Path]::GetFullPath($_.RepositoryRoot).TrimEnd([System.IO.Path]::DirectorySeparatorChar, [System.IO.Path]::AltDirectorySeparatorChar)
-            -not [string]::Equals($worktreePath, $repositoryRoot, $pathComparison)
-        } |
-        ForEach-Object {
+            if ([string]::Equals($worktreePath, $repositoryRoot, $pathComparison)) {
+                return
+            }
+
             [PSCustomObject]@{
                 RepositoryName = $_.RepositoryName
-                Branch         = $_.Branch
+                Branch         = $branch
                 Path           = $_.Path
                 Display        = $null
             }
@@ -36,7 +46,7 @@ function Switch-GitWorktree {
 
     if ($hiddenWorktreeCount -gt 0) {
         $hiddenWorktreeSuffix = if ($hiddenWorktreeCount -eq 1) { "" } else { "s" }
-        Write-Output ("{0} bare or detached Git worktree{1} hidden." -f $hiddenWorktreeCount, $hiddenWorktreeSuffix)
+        Write-Output ("{0} bare Git worktree{1} hidden." -f $hiddenWorktreeCount, $hiddenWorktreeSuffix)
     }
 
     if (-not $entries) {

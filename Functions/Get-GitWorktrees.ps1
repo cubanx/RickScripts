@@ -20,9 +20,30 @@ function Get-GitWorktrees {
 
         $gitPath = Join-Path $Root ".git"
         if (Test-Path -LiteralPath $gitPath) {
-            Write-Debug "Found Git repository root '$Root'"
-            $Root
-            return
+            if (Test-Path -LiteralPath $gitPath -PathType Container) {
+                Write-Debug "Found Git repository root '$Root'"
+                $Root
+                return
+            }
+
+            $gitCommonDir = git -C $Root rev-parse --path-format=absolute --git-common-dir 2>$null
+            if ($LASTEXITCODE -eq 0 -and $gitCommonDir) {
+                $gitCommonDir = Get-NormalizedPath -Path $gitCommonDir
+                $commonDirSegments = $gitCommonDir -split "[\\/]"
+                $gitDirIndex = [Array]::IndexOf($commonDirSegments, ".git")
+                if (
+                    $gitDirIndex -ge 0 -and
+                    $gitDirIndex -lt ($commonDirSegments.Length - 1) -and
+                    $commonDirSegments[$gitDirIndex + 1] -eq "worktrees"
+                ) {
+                    $gitCommonDir = ($commonDirSegments[0..$gitDirIndex] -join [System.IO.Path]::DirectorySeparatorChar)
+                }
+
+                $repositoryRoot = Split-Path -Parent $gitCommonDir
+                Write-Debug "Resolved linked-worktree root '$Root' to repository '$repositoryRoot'"
+                Get-NormalizedPath -Path $repositoryRoot
+                return
+            }
         }
 
         Get-ChildItem -LiteralPath $Root -Directory -Force -ErrorAction SilentlyContinue |

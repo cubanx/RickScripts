@@ -5,101 +5,28 @@ function Remove-StaleCodexWorktree {
         [switch]$Force
     )
 
-    function Get-FirstOtherWorktreePath {
-        param(
-            [string]$CandidatePath
-        )
-
-        $worktreeLines = git -C $CandidatePath worktree list --porcelain 2>$null
-        $candidateFullPath = [System.IO.Path]::GetFullPath($CandidatePath).TrimEnd([System.IO.Path]::DirectorySeparatorChar, [System.IO.Path]::AltDirectorySeparatorChar)
-
-        foreach ($line in $worktreeLines) {
-            if (-not $line.StartsWith("worktree ")) {
-                continue
-            }
-
-            $worktreePath = $line.Substring("worktree ".Length)
-            $worktreeFullPath = [System.IO.Path]::GetFullPath($worktreePath).TrimEnd([System.IO.Path]::DirectorySeparatorChar, [System.IO.Path]::AltDirectorySeparatorChar)
-            $pathComparison = [System.StringComparison]::Ordinal
-            if ([System.IO.Path]::DirectorySeparatorChar -eq '\') {
-                $pathComparison = [System.StringComparison]::OrdinalIgnoreCase
-            }
-
-            if (-not [string]::Equals($worktreeFullPath, $candidateFullPath, $pathComparison)) {
-                return $worktreePath
-            }
-        }
-
-        return $null
-    }
-
     function New-StaleCodexWorktreeCandidate {
         param(
-            [string]$HexFolder,
-            [string]$ProjectName,
-            [string]$Path
+            [object]$Worktree,
+            [object]$Assessment
         )
 
-        $branchName = git -C $Path branch --show-current 2>$null
-        if ($branchName) {
-            Write-Debug "Skipping '$Path' because it is on branch '$($branchName.Trim())'"
+        if (-not $Assessment.IsStale) {
+            Write-Debug "Skipping '$($Worktree.Path)' because $($Assessment.Reason)"
             return $null
         }
 
-        $status = git -C $Path status --porcelain=v1 --untracked-files=all 2>$null
-        if ($LASTEXITCODE -ne 0) {
-            Write-Debug "Skipping '$Path' because git status failed"
-            return $null
-        }
-
-        if ($status) {
-            Write-Debug "Skipping '$Path' because it has local changes"
-            return $null
-        }
-
-        $uniqueCommits = git -C $Path log --oneline HEAD --not --branches --remotes --tags 2>$null
-        if ($LASTEXITCODE -ne 0) {
-            Write-Debug "Skipping '$Path' because unique commit check failed"
-            return $null
-        }
-
-        if ($uniqueCommits) {
-            Write-Debug "Skipping '$Path' because it has commits not reachable from branches, remotes, or tags"
-            return $null
-        }
-
-        $containingRefs = @(git -C $Path for-each-ref --contains HEAD --format='%(refname:short)' refs/heads refs/remotes refs/tags 2>$null)
-        if ($LASTEXITCODE -ne 0) {
-            Write-Debug "Skipping '$Path' because ref reachability check failed"
-            return $null
-        }
-
-        if (-not $containingRefs) {
-            Write-Debug "Skipping '$Path' because HEAD is not reachable from a branch, remote, or tag"
-            return $null
-        }
-
-        $ownerPath = Get-FirstOtherWorktreePath -CandidatePath $Path
-        if (-not $ownerPath) {
-            Write-Debug "Skipping '$Path' because no owning worktree was found"
-            return $null
-        }
-
-        $head = git -C $Path rev-parse HEAD 2>$null
-        $shortHead = git -C $Path rev-parse --short HEAD 2>$null
-        if (-not $head -or -not $shortHead) {
-            Write-Debug "Skipping '$Path' because HEAD could not be resolved"
-            return $null
-        }
+        $projectName = Split-Path -Leaf $Worktree.Path
+        $hexFolder = Split-Path -Leaf (Split-Path -Parent $Worktree.Path)
 
         [PSCustomObject]@{
             HexFolder   = $HexFolder
-            ProjectName = $ProjectName
-            Path        = $Path
-            OwnerPath   = $ownerPath
-            Head        = $head.Trim()
-            ShortHead   = $shortHead.Trim()
-            Refs        = @($containingRefs | ForEach-Object { $_.Trim() } | Where-Object { $_ })
+            ProjectName = $projectName
+            Path        = $Worktree.Path
+            OwnerPath   = $Assessment.OwnerPath
+            Head        = $Assessment.Head
+            ShortHead   = $Assessment.ShortHead
+            Refs        = $Assessment.Refs
             Display     = $null
         }
     }
@@ -149,30 +76,12 @@ function Remove-StaleCodexWorktree {
         return
     }
 
-    $candidates = @(Get-ChildItem -LiteralPath $resolvedWorktreeRoot -Directory -ErrorAction SilentlyContinue |
-        Sort-Object Name |
-        ForEach-Object {
-            $hexFolder = $_
-            Write-Debug "Inspecting worktree folder '$($hexFolder.FullName)'"
-
-            $repoFolder = Get-ChildItem -LiteralPath $hexFolder.FullName -Directory -ErrorAction SilentlyContinue |
-                Sort-Object Name |
-                Select-Object -First 1
-
-            if (-not $repoFolder) {
-                Write-Debug "Skipping '$($hexFolder.FullName)' because it does not contain a project folder"
-                return
-            }
-
-            $gitMetadataPath = Join-Path $repoFolder.FullName ".git"
-            if (-not (Test-Path -LiteralPath $gitMetadataPath)) {
-                Write-Debug "Skipping '$($repoFolder.FullName)' because '.git' was not found"
-                return
-            }
-
-            New-StaleCodexWorktreeCandidate -HexFolder $hexFolder.Name -ProjectName $repoFolder.Name -Path $repoFolder.FullName
-        } |
-        Where-Object { $_ })
+    $allWorktrees = Get-GitWorktrees -Roots @($WorktreeRoot)
+    $candidates = @($allWorktrees | ForEach-Object {
+        $assessment = Get-StaleGitWorktreeAssessment -Worktree $_ -AllWorktrees $allWorktrees
+        New-StaleCodexWorktreeCandidate -Worktree $_ -Assessment $assessment
+    } |
+    Where-Object { $_ })
 
     if (-not $candidates) {
         Write-Output "No stale Codex worktrees found in $resolvedWorktreeRoot"
