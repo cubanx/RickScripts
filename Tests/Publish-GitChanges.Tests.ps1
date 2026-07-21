@@ -13,6 +13,24 @@ $publisherParameters = (Get-Command Publish-GitChanges).Parameters.Keys
 if ($publisherParameters -contains 'Path' -or $publisherParameters -contains 'All' -or $publisherParameters -contains 'Message') { throw 'Publish-GitChanges must not expose Path, All, or Message parameters.' }
 if ((Get-GitPublishingSlug -RepositoryName 'RickScripts') -ne 'rs') { throw 'Expected CamelCase repository slug.' }
 
+$gitExecutable = Get-Command git -CommandType Application | Select-Object -First 1 -ExpandProperty Source
+$whitespaceTestRoot = Join-Path ([System.IO.Path]::GetTempPath()) "rickscripts-diff-check-$([guid]::NewGuid())"
+try {
+    New-Item -ItemType Directory -Path $whitespaceTestRoot | Out-Null
+    & $gitExecutable -C $whitespaceTestRoot init --quiet
+    [System.IO.File]::WriteAllText((Join-Path $whitespaceTestRoot 'blank.md'), "content`n`n")
+    & $gitExecutable -C $whitespaceTestRoot add blank.md
+    & $gitExecutable -C $whitespaceTestRoot -c core.whitespace=-blank-at-eof diff --cached --check
+    if ($LASTEXITCODE -ne 0) { throw 'Blank lines at EOF must pass the softened diff check.' }
+    [System.IO.File]::WriteAllText((Join-Path $whitespaceTestRoot 'trailing.md'), "content  `n")
+    & $gitExecutable -C $whitespaceTestRoot add trailing.md
+    $null = & $gitExecutable -C $whitespaceTestRoot -c core.whitespace=-blank-at-eof diff --cached --check 2>&1
+    if ($LASTEXITCODE -eq 0) { throw 'Trailing whitespace must still fail the softened diff check.' }
+}
+finally {
+    Remove-Item -LiteralPath $whitespaceTestRoot -Recurse -Force
+}
+
 $script:Calls = @()
 $script:Scenario = 'success'
 $script:CurrentBranch = 'main'
@@ -54,7 +72,7 @@ function git {
         $global:LASTEXITCODE = 1
         return 'origin is inaccessible'
     }
-    if ($script:Scenario -eq 'diff-check-failure' -and $command -eq 'diff --cached --check') {
+    if ($script:Scenario -eq 'diff-check-failure' -and $command -eq '-c core.whitespace=-blank-at-eof diff --cached --check') {
         $global:LASTEXITCODE = 1
         return 'whitespace error'
     }
@@ -73,7 +91,7 @@ function git {
         }
         'switch -c *' { return }
         'add -A' { return }
-        'diff --cached --check' { return }
+        '-c core.whitespace=-blank-at-eof diff --cached --check' { return }
         'diff --cached --name-status' { if ($script:Scenario -eq 'empty-staged') { return }; return "M`tchanged.ps1" }
         'commit -m *' { return }
         'push -u origin *' { return }
@@ -120,7 +138,7 @@ $result = Publish-GitChanges
 if ($result.Branch -ne 'dw/publish-git-changes' -or $result.Title -ne '[dw-#42] Publish Git changes') { throw 'Expected numbered draft PR result.' }
 if (($script:Calls -join "`n") -notmatch 'git ls-remote --symref origin HEAD') { throw 'Expected read-only origin accessibility check.' }
 if (($script:Calls -join "`n") -notmatch 'git add -A') { throw 'Expected complete-tree staging.' }
-if (($script:Calls -join "`n") -notmatch 'git diff --cached --check') { throw 'Expected cached diff check.' }
+if ($script:Calls -notcontains 'git -c core.whitespace=-blank-at-eof diff --cached --check') { throw 'Expected cached diff check to ignore blank lines at EOF.' }
 if (($script:Calls | Where-Object { $_ -like 'codex *' }).Count -ne 1) { throw 'Expected exactly one Codex summary call.' }
 if (($script:Calls -join "`n") -notmatch 'gh pr create .*--draft') { throw 'Expected draft PR creation.' }
 foreach ($section in @('## What changed', '## Why', '## User impact', '## Developer impact', '## Validation', 'git diff --cached --check passed.')) {
@@ -183,7 +201,7 @@ $script:CurrentBranch = 'dw/existing-work'
 $script:Calls = @()
 $result = Publish-GitChanges
 if ($result.Branch -ne 'dw/existing-work' -or $result.CommitSha -ne '0123456789abcdef' -or $result.Url -ne 'https://github.com/example/data-warehouse/pull/42' -or $result.Title -ne 'Existing PR title') { throw 'Expected existing PR update result.' }
-foreach ($requiredCall in @('git add -A', 'git diff --cached --check', 'git commit -m feat(scope)!: Publish Git changes', 'git push -u origin dw/existing-work')) {
+foreach ($requiredCall in @('git add -A', 'git -c core.whitespace=-blank-at-eof diff --cached --check', 'git commit -m feat(scope)!: Publish Git changes', 'git push -u origin dw/existing-work')) {
     if ($script:Calls -notcontains $requiredCall) { throw "Expected existing PR update to call '$requiredCall'." }
 }
 if (@($script:Calls | Where-Object { $_ -like 'codex *' }).Count -ne 1) { throw 'Expected exactly one Codex summary call for existing PR update.' }

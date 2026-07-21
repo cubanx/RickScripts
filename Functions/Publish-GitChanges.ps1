@@ -120,7 +120,7 @@ function Publish-GitChanges {
     }
 
     Invoke-CodexGitPublishingCommand -FileName 'git' -Arguments @('add', '-A') | Out-Null
-    Invoke-CodexGitPublishingCommand -FileName 'git' -Arguments @('diff', '--cached', '--check') | Out-Null
+    Invoke-CodexGitPublishingCommand -FileName 'git' -Arguments @('-c', 'core.whitespace=-blank-at-eof', 'diff', '--cached', '--check') | Out-Null
     $stagedDiff = Invoke-CodexGitPublishingCommand -FileName 'git' -Arguments @('diff', '--cached', '--name-status')
     $stagedDiff | ForEach-Object { Write-Host $_ }
     if (-not $stagedDiff) { throw 'Staging produced no changes to commit.' }
