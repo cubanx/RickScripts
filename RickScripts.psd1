@@ -15,7 +15,6 @@
         'Remove-LocalBranchesThatAreMerged',
         'Clear-NodeModules',
         'Open-ProjectFolder',
-        'New-MergeRequest',
         'Copy-MergeRequest',
         'Get-GitWorktrees',
         'Get-GitStash',
@@ -30,7 +29,8 @@
         'New-ClaudeAgent',
         'Add-MeetingRoom',
         'Publish-Config',
-        'Open-MergeRequest',
+        'Get-CodexChangeSummary',
+        'Publish-GitChanges',
         'Get-LatestRun',
         'Edit-Config',
         'Convert-MarkdownToPdf',
@@ -43,7 +43,7 @@
     )
     
     # Aliases to export from this module
-    AliasesToExport = @('sb', 'smr', 'rlb', 'cnm', 'opf', 'nmr', 'cmr', 'ggs', 'rhi', 'rhd', 'mis', 'ivs', 'ae1p', 'ge1p', 'nca', 'ivsuite', 'amr', 'omr', 'glr', 'ec', 'sgw', 'rcw', 'jmib', 'sjb', 'sdf')
+    AliasesToExport = @('sb', 'smr', 'rlb', 'cnm', 'opf', 'cmr', 'ggs', 'rhi', 'rhd', 'mis', 'ivs', 'ae1p', 'ge1p', 'nca', 'ivsuite', 'amr', 'glr', 'ec', 'sgw', 'rcw', 'jmib', 'sjb', 'sdf', 'yeet')
     
     # Variables to export from this module
     VariablesToExport = @('mem', 'gl', 'pro', 'auth', 'petl')

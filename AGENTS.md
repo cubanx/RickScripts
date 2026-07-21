@@ -24,7 +24,8 @@ This is a PowerShell module called `RickScripts` containing personal development
 - `Remove-LocalBranchesThatAreMerged` (`rlb`) - Clean up merged branches
 - `Clear-NodeModules` (`cnm`) - Remove node_modules and reinstall with pnpm
 - `Open-ProjectFolder` (`opf`) - Open directory in VS Code using fzf
-- `New-MergeRequest` (`nmr`) - Create GitLab MR with template
+- `Get-CodexChangeSummary` - Generate a read-only structured Codex Git summary
+- `Publish-GitChanges` (`yeet`) - Stage the complete worktree and create or update a GitHub pull request
 - `Get-GitWorktrees` - List registered Git worktrees from cached root repos under `~/code`
 - `Get-GitStash` (`ggs`) - Interactive stash selection and pop with fzf
 - `Remove-HistoryItem` (`rhi`) - Remove items from PowerShell history interactively
@@ -58,7 +59,7 @@ The module follows PowerShell best practices:
 - `Switch-MergeRequest` - MR-based development workflow
 - `Switch-GitWorktree` - Git worktree selection and directory switching
 - `Remove-LocalBranchesThatAreMerged` - Branch cleanup
-- `New-MergeRequest` - Automated MR creation with templates
+- `Publish-GitChanges` - Guarded GitHub pull-request publishing; includes every worktree change and stops before mutation if origin, GitHub, or worktree checks fail
 - `Get-GitWorktrees` - Git worktree inventory from cached root repositories
 - `Get-GitStash` - Stash management
 - `Move-IssueState` - Move GitLab issues between workflow states
@@ -79,12 +80,8 @@ The module follows PowerShell best practices:
 ### Productivity Tools
 - `New-CalendarEvent` - Create calendar events programmatically
 
-### Template Processing
-`New-MergeRequest` processes GitLab MR templates by:
-- Reading template from `.gitlab/merge_request_templates/prospector.md` (changed from Default.md)
-- Removing mobile-specific content and environment sections
-- Auto-populating issue numbers and titles from GitLab API
-- Setting consistent MR options (draft, remove source branch, etc.)
+### GitHub Publishing
+`Publish-GitChanges` uses `git add -A`, then checks and displays the staged diff before committing and pushing. It creates a draft PR by default (`-Ready` opts out), or updates an open PR on the current feature branch without creating or retitling it; an open PR for another branch stops safely. A single OpenSpec-only change uses deterministic branch, commit, title, and body metadata without invoking Codex.
 
 ### Environment Files Structure
 The module includes an `Env/` subdirectory containing:
