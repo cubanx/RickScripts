@@ -50,11 +50,6 @@ function Save-DotfilesChanges {
             $untracked | ForEach-Object { Write-Host "  $_" }
         }
 
-        if (-not $Diff) {
-            $showDiff = Read-Host "Show full diff? [y/N]"
-            $Diff = $showDiff -match '^(y|yes)$'
-        }
-
         if ($Diff) {
             Write-Host ""
             Write-Host "Diff:"
@@ -68,18 +63,8 @@ function Save-DotfilesChanges {
             }
         }
 
-        Write-Host ""
-        $commit = Read-Host "Commit these dotfiles changes? [y/N]"
-        if ($commit -notmatch '^(y|yes)$') {
-            Write-Host "Leaving changes uncommitted."
-            return
-        }
-
         if (-not $CommitMessage) {
-            $CommitMessage = Read-Host "Commit message [chore: update dotfiles]"
-            if (-not $CommitMessage) {
-                $CommitMessage = 'chore: update dotfiles'
-            }
+            $CommitMessage = 'chore: update dotfiles'
         }
 
         & git add -A
