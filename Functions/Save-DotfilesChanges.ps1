@@ -19,6 +19,14 @@ function Save-DotfilesChanges {
             return
         }
 
+        $snapshotScript = Join-Path $gitRoot 'Save-Dotfiles.ps1'
+        if (-not (Test-Path -LiteralPath $snapshotScript -PathType Leaf)) {
+            Write-Error "Dotfiles snapshot script not found: $snapshotScript"
+            return
+        }
+
+        & $snapshotScript
+
         $status = @(& git status --short)
         if (-not $status) {
             Write-Host "No dotfiles changes."
