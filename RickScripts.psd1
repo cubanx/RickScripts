@@ -31,6 +31,7 @@
         'Publish-Config',
         'Get-CodexChangeSummary',
         'Publish-GitChanges',
+        'Watch-PullRequest',
         'Get-LatestRun',
         'Edit-Config',
         'Convert-MarkdownToPdf',
@@ -43,7 +44,7 @@
     )
     
     # Aliases to export from this module
-    AliasesToExport = @('sb', 'smr', 'rlb', 'cnm', 'opf', 'cmr', 'ggs', 'rhi', 'rhd', 'mis', 'ivs', 'ae1p', 'ge1p', 'nca', 'ivsuite', 'amr', 'glr', 'ec', 'sgw', 'rcw', 'jmib', 'sjb', 'sdf', 'yeet')
+    AliasesToExport = @('sb', 'smr', 'rlb', 'cnm', 'opf', 'cmr', 'ggs', 'rhi', 'rhd', 'mis', 'ivs', 'ae1p', 'ge1p', 'nca', 'ivsuite', 'amr', 'glr', 'ec', 'sgw', 'rcw', 'jmib', 'sjb', 'sdf', 'yeet', 'wpr')
     
     # Variables to export from this module
     VariablesToExport = @('mem', 'gl', 'pro', 'auth', 'petl')
