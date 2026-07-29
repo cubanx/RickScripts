@@ -18,6 +18,23 @@ function Get-GitPublishingBranchDescription {
     return ($description -replace '[^A-Za-z0-9]+', '-').Trim('-').ToLowerInvariant()
 }
 
+function Get-OpenSpecProposalSection {
+    param(
+        [Parameter(Mandatory = $true)][string]$Markdown,
+        [Parameter(Mandatory = $true)][string]$Heading
+    )
+
+    $match = [regex]::Match(
+        $Markdown,
+        "(?ms)^##\s+$([regex]::Escape($Heading))\s*\r?\n(?<Content>.*?)(?=^##\s+|\z)"
+    )
+    if (-not $match.Success -or [string]::IsNullOrWhiteSpace($match.Groups['Content'].Value)) {
+        throw "OpenSpec proposal is missing a non-empty '$Heading' section."
+    }
+
+    return $match.Groups['Content'].Value.Trim()
+}
+
 function Publish-GitChanges {
     <#
     .SYNOPSIS
@@ -84,14 +101,18 @@ function Publish-GitChanges {
         $changeName = $openSpecChanges[0]
         $titleChangeName = $changeName -replace '^add-', ''
         $humanChangeName = $titleChangeName -replace '-', ' '
+        $proposalPath = Join-Path $root "openspec/changes/$changeName/proposal.md"
+        if (-not (Test-Path -LiteralPath $proposalPath -PathType Leaf)) {
+            throw "OpenSpec proposal not found at '$proposalPath'."
+        }
+        $proposal = Get-Content -LiteralPath $proposalPath -Raw
         [PSCustomObject]@{
             CommitMessage = "docs: add $humanChangeName OpenSpec"
             HumanTitle = "Add $humanChangeName OpenSpec"
-            WhatChanged = "Adds the $changeName OpenSpec change."
-            Why = 'Capture the proposed change before implementation.'
-            UserImpact = 'No runtime behavior changes; this pull request contains specification-only artifacts.'
-            DeveloperImpact = 'Provides the design, requirements, and tasks for the change.'
-            Validation = 'Not run; this is a specification-only change.'
+            WhatChanged = Get-OpenSpecProposalSection -Markdown $proposal -Heading 'What Changes'
+            Why = Get-OpenSpecProposalSection -Markdown $proposal -Heading 'Why'
+            Impact = Get-OpenSpecProposalSection -Markdown $proposal -Heading 'Impact'
+            Validation = 'Not run by yeet.'
         }
     }
     else {
@@ -141,11 +162,21 @@ function Publish-GitChanges {
 
     $bodyPath = [System.IO.Path]::GetTempFileName()
     try {
-        @(
-            '## What changed', $summary.WhatChanged, '', '## Why', $summary.Why, '',
-            '## User impact', $summary.UserImpact, '', '## Developer impact', $summary.DeveloperImpact, '',
-            '## Validation', $summary.Validation, '', '## Staged diff check', 'git diff --cached --check passed.'
-        ) | Set-Content -LiteralPath $bodyPath -Encoding UTF8
+        $body = if ($isOpenSpecOnly) {
+            @(
+                '## Why', $summary.Why, '', '## What changes', $summary.WhatChanged, '',
+                '## Impact', $summary.Impact, '', '## Validation', $summary.Validation, '',
+                '## Staged diff check', 'git diff --cached --check passed.'
+            )
+        }
+        else {
+            @(
+                '## What changed', $summary.WhatChanged, '', '## Why', $summary.Why, '',
+                '## User impact', $summary.UserImpact, '', '## Developer impact', $summary.DeveloperImpact, '',
+                '## Validation', $summary.Validation, '', '## Staged diff check', 'git diff --cached --check passed.'
+            )
+        }
+        $body | Set-Content -LiteralPath $bodyPath -Encoding UTF8
         $createArguments = @('pr', 'create', '--base', $BaseBranch, '--head', $publishingBranch, '--title', $summary.HumanTitle, '--body-file', $bodyPath)
         if (-not $Ready) { $createArguments += '--draft' }
         $url = (Invoke-CodexGitPublishingCommand -FileName 'gh' -Arguments $createArguments | Select-Object -First 1).Trim()
