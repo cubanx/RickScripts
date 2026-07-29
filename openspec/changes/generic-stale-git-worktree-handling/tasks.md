@@ -5,8 +5,9 @@
 
 ## 2. Switcher Behavior
 
-- [x] 2.1 Update `Switch-GitWorktree` to hide bare worktrees but include detached non-bare worktrees.
+- [x] 2.1 Update `Switch-GitWorktree` to show branch worktrees by default and detached non-bare worktrees only with `-DetachedOnly`.
 - [x] 2.2 Display detached worktrees with a stable short-`HEAD` label.
+- [x] 2.3 Exclude `crisp-brains` and `estate-planner` through one repository-name list.
 
 ## 3. Cleanup Behavior
 
@@ -15,6 +16,7 @@
 
 ## 4. Validation
 
-- [x] 4.1 Add focused PowerShell checks for detached picker inclusion and bare exclusion.
-- [x] 4.2 Add focused PowerShell checks for stale assessment safety cases.
-- [x] 4.3 Run the focused tests and strict OpenSpec validation.
+- [x] 4.1 Add focused PowerShell checks for default and detached-only filtering and bare exclusion.
+- [x] 4.2 Verify repository exclusions in both picker modes.
+- [x] 4.3 Add focused PowerShell checks for stale assessment safety cases.
+- [x] 4.4 Run the focused tests and strict OpenSpec validation.

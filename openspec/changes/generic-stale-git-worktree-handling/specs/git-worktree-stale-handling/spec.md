@@ -1,15 +1,30 @@
 ## ADDED Requirements
 
-### Requirement: Detached worktrees are selectable
-`Switch-GitWorktree` SHALL include detached non-bare Git worktrees in the interactive picker.
+### Requirement: Branch and detached worktrees have separate picker views
+`Switch-GitWorktree` SHALL exclude detached worktrees by default and SHALL show only detached non-bare worktrees when invoked with `-DetachedOnly`.
 
-#### Scenario: Detached worktree appears in picker
+#### Scenario: Default picker excludes detached worktree
 - **WHEN** Git reports a non-bare worktree with detached `HEAD`
-- **THEN** `Switch-GitWorktree` lists the worktree with a detached `HEAD` label and its path
+- **THEN** `Switch-GitWorktree` excludes the worktree from the default picker
+
+#### Scenario: Detached-only picker
+- **WHEN** `Switch-GitWorktree` is invoked with `-DetachedOnly`
+- **THEN** it lists only detached non-bare worktrees with a detached `HEAD` label and path
 
 #### Scenario: Bare worktree stays hidden
 - **WHEN** Git reports a bare worktree
 - **THEN** `Switch-GitWorktree` excludes the worktree from the picker
+
+### Requirement: Listed repositories are excluded
+`Switch-GitWorktree` SHALL exclude every worktree whose repository name appears in its exclusion list from both picker views. The list SHALL include `crisp-brains` and `estate-planner`.
+
+#### Scenario: Excluded repository has a branch worktree
+- **WHEN** Git reports a branch worktree for an excluded repository
+- **THEN** `Switch-GitWorktree` excludes it from the default picker
+
+#### Scenario: Excluded repository has a detached worktree
+- **WHEN** Git reports a detached worktree for an excluded repository
+- **THEN** `Switch-GitWorktree -DetachedOnly` excludes it from the picker
 
 ### Requirement: Stale assessment is shared
 The module SHALL use one shared stale-worktree assessment for worktree switching and stale cleanup behavior.
