@@ -57,7 +57,7 @@ Before mutation, `Publish-GitChanges` SHALL display the staged and unstaged/untr
 - **THEN** the command creates the supplied `-BranchName` or derived slug-prefixed branch
 
 ### Requirement: Single-OpenSpec publishing is deterministic
-When every changed path belongs to exactly one `openspec/changes/<change-name>/` directory, `Publish-GitChanges` SHALL avoid Codex and use `<repo-slug>/<change-name>` when it must create a branch, `docs: add <space-separated-change-name-with-leading-add-removed> OpenSpec` as the commit message, the matching `Add ... OpenSpec` human title, and deterministic specification-only PR summary fields. Multiple OpenSpec change directories or any changed path outside that directory SHALL use the normal Codex summary path.
+When every changed path belongs to exactly one `openspec/changes/<change-name>/` directory, `Publish-GitChanges` SHALL avoid Codex and use `<repo-slug>/<change-name>` when it must create a branch, `docs: add <space-separated-change-name-with-leading-add-removed> OpenSpec` as the commit message, the matching `Add ... OpenSpec` human title, and the proposal's non-empty `Why`, `What Changes`, and `Impact` sections as the PR body. Multiple OpenSpec change directories or any changed path outside that directory SHALL use the normal Codex summary path.
 
 #### Scenario: One OpenSpec change avoids Codex
 - **WHEN** all worktree changes belong to one OpenSpec change directory
@@ -86,7 +86,7 @@ When every changed path belongs to exactly one `openspec/changes/<change-name>/`
 - **THEN** the command stops before branch creation, staging, committing, or pushing
 
 ### Requirement: Pull requests have explicit mode, numbered title, and summary
-`Publish-GitChanges` SHALL call `Get-CodexChangeSummary` exactly once unless the deterministic single-OpenSpec path applies. It SHALL create a temporary Markdown PR body containing the selected summary's what changed, why, user impact, developer impact, and validation plus actual staged diff-check evidence. It SHALL create a draft or ready GitHub pull request according to its command option, set the final title to `[<repo-slug>-#<number>] <human title>`, and report the branch, commit SHA, PR URL, title, and final worktree status.
+`Publish-GitChanges` SHALL call `Get-CodexChangeSummary` exactly once unless the deterministic single-OpenSpec path applies. It SHALL create a temporary Markdown PR body containing either the OpenSpec proposal sections or the selected Codex summary's what changed, why, user impact, developer impact, and validation, plus actual staged diff-check evidence. It SHALL create a draft or ready GitHub pull request according to its command option, set the final title to `[<repo-slug>-#<number>] <human title>`, and report the branch, commit SHA, PR URL, title, and final worktree status.
 
 #### Scenario: Draft pull request is requested
 - **WHEN** a caller requests draft publishing

@@ -37,6 +37,7 @@ $script:CurrentBranch = 'main'
 $script:CommitMessage = 'feat(scope)!: Publish Git changes'
 $script:LastBody = $null
 $script:LastBodyPath = $null
+$script:RepositoryRoot = Join-Path ([System.IO.Path]::GetTempPath()) "rickscripts-publish-$([guid]::NewGuid())/data-warehouse"
 
 function Assert-NoGitMutation {
     param([string]$Message)
@@ -79,7 +80,7 @@ function git {
 
     $global:LASTEXITCODE = 0
     switch -Wildcard ($command) {
-        'rev-parse --show-toplevel' { return '/tmp/data-warehouse' }
+        'rev-parse --show-toplevel' { return $script:RepositoryRoot }
         'ls-remote --symref origin HEAD' { return @("ref: refs/heads/main`tHEAD", "0123456789abcdef`tHEAD") }
         'branch --show-current' { return $script:CurrentBranch }
         'status --porcelain' {
@@ -150,14 +151,30 @@ $script:Scenario = 'openspec-only'
 $script:CurrentBranch = $null
 $script:Calls = @()
 $script:LastBody = $null
+$proposalPath = Join-Path $script:RepositoryRoot 'openspec/changes/add-daily-dash-renewals/proposal.md'
+New-Item -ItemType Directory -Path (Split-Path -Parent $proposalPath) -Force | Out-Null
+@'
+## Why
+
+Daily renewal signals are hard to spot.
+
+## What Changes
+
+- Add a daily renewal dashboard.
+
+## Impact
+
+- Account teams get a focused renewal view.
+'@ | Set-Content -LiteralPath $proposalPath -Encoding UTF8
 $result = Publish-GitChanges
 if ($result.Branch -ne 'dw/add-daily-dash-renewals' -or $result.Title -ne '[dw-#42] Add daily dash renewals OpenSpec') { throw 'Expected deterministic OpenSpec-only branch and title.' }
 if ($script:Calls -notcontains 'git commit -m docs: add daily dash renewals OpenSpec') { throw 'Expected deterministic OpenSpec-only commit message.' }
 if (@($script:Calls | Where-Object { $_ -like 'codex *' }).Count -ne 0) { throw 'OpenSpec-only publishing must not invoke Codex.' }
-foreach ($bodyText in @('specification-only', 'Not run; this is a specification-only change.')) {
-    if ($script:LastBody -notmatch [regex]::Escape($bodyText)) { throw "Expected deterministic OpenSpec PR body text '$bodyText'." }
+foreach ($bodyText in @('Daily renewal signals are hard to spot.', '- Add a daily renewal dashboard.', '- Account teams get a focused renewal view.', 'Not run by yeet.')) {
+    if ($script:LastBody -notmatch [regex]::Escape($bodyText)) { throw "Expected proposal content in OpenSpec PR body: '$bodyText'." }
 }
-if ($script:LastBody -match 'strict validation') { throw 'OpenSpec-only PR body must not claim strict validation ran.' }
+if ($script:LastBody -match 'specification-only|Capture the proposed change') { throw 'OpenSpec-only PR body must not use generic proposal boilerplate.' }
+Remove-Item -LiteralPath (Split-Path -Parent $script:RepositoryRoot) -Recurse -Force
 
 $script:Scenario = 'mixed-openspec'
 $script:CurrentBranch = 'main'
