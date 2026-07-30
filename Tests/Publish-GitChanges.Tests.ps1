@@ -83,7 +83,7 @@ function git {
         'ls-remote --symref origin HEAD' { return @("ref: refs/heads/main`tHEAD", "0123456789abcdef`tHEAD") }
         'branch --show-current' { return $script:CurrentBranch }
         'status --porcelain' {
-            if ($script:Scenario -eq 'openspec-only') { return '?? openspec/changes/add-daily-dash-renewals/proposal.md' }
+            if ($script:Scenario -in @('openspec-only', 'openspec-with-committed-code')) { return '?? openspec/changes/add-daily-dash-renewals/proposal.md' }
             if ($script:Scenario -eq 'mixed-openspec') { return @('?? openspec/changes/add-daily-dash-renewals/proposal.md', ' M Functions/Publish-GitChanges.ps1') }
             if ($script:Scenario -eq 'multiple-openspec') { return @('?? openspec/changes/add-daily-dash-renewals/proposal.md', '?? openspec/changes/add-other-change/proposal.md') }
             if ($script:Scenario -ne 'clean') { return @(' M changed.ps1', '?? new.ps1') }
@@ -128,7 +128,7 @@ $summary = Get-CodexChangeSummary
 $summaryFields = @('CommitMessage', 'HumanTitle', 'PullRequestTitle', 'WhatChanged', 'Why', 'UserImpact', 'DeveloperImpact', 'Validation')
 foreach ($field in $summaryFields) { if ([string]::IsNullOrWhiteSpace([string]$summary.$field)) { throw "Expected summary field '$field'." } }
 $codexCall = @($script:Calls | Where-Object { $_ -like 'codex *' })
-if ($codexCall.Count -ne 1 -or $codexCall[0] -notmatch 'exec -m gpt-5\.6-luna -c model_reasoning_effort="low" --ephemeral --sandbox read-only --output-schema .+ --output-last-message .+' -or $codexCall[0] -notmatch 'Inspect the complete current worktree diff' -or $codexCall[0] -notmatch 'Follow repository AGENTS.md instructions' -or $codexCall[0] -notmatch 'Do not mutate anything') { throw 'Expected constrained, explicit Codex invocation.' }
+if ($codexCall.Count -ne 1 -or $codexCall[0] -notmatch 'exec -m gpt-5\.6-luna -c model_reasoning_effort="low" --ephemeral --sandbox read-only --output-schema .+ --output-last-message .+' -or $codexCall[0] -notmatch 'current branch relative to origin.s default branch' -or $codexCall[0] -notmatch 'staged, unstaged, and untracked worktree changes' -or $codexCall[0] -notmatch 'Follow repository AGENTS.md instructions' -or $codexCall[0] -notmatch 'Do not mutate anything') { throw 'Expected constrained, explicit Codex invocation.' }
 if (@($script:Calls | Where-Object { $_ -match '^(git|gh) ' }).Count -ne 0) { throw 'Standalone summary must not invoke Git or GitHub.' }
 
 $script:Scenario = 'success'
@@ -147,17 +147,22 @@ foreach ($section in @('## What changed', '## Why', '## User impact', '## Develo
 if (Test-Path -LiteralPath $script:LastBodyPath) { throw 'Expected temporary PR body cleanup.' }
 
 $script:Scenario = 'openspec-only'
-$script:CurrentBranch = $null
+$script:CurrentBranch = 'main'
 $script:Calls = @()
 $script:LastBody = $null
 $result = Publish-GitChanges
 if ($result.Branch -ne 'dw/add-daily-dash-renewals' -or $result.Title -ne '[dw-#42] Add daily dash renewals OpenSpec') { throw 'Expected deterministic OpenSpec-only branch and title.' }
 if ($script:Calls -notcontains 'git commit -m docs: add daily dash renewals OpenSpec') { throw 'Expected deterministic OpenSpec-only commit message.' }
 if (@($script:Calls | Where-Object { $_ -like 'codex *' }).Count -ne 0) { throw 'OpenSpec-only publishing must not invoke Codex.' }
-foreach ($bodyText in @('specification-only', 'Not run; this is a specification-only change.')) {
-    if ($script:LastBody -notmatch [regex]::Escape($bodyText)) { throw "Expected deterministic OpenSpec PR body text '$bodyText'." }
-}
+if ($script:LastBody -notmatch 'The proposal defines the intended daily dash renewals behavior\.') { throw 'Expected deterministic OpenSpec user impact.' }
+if ($script:LastBody -match 'specification-only|No runtime behavior changes') { throw 'OpenSpec-only PR body must avoid boilerplate about artifact type or absent runtime behavior.' }
 if ($script:LastBody -match 'strict validation') { throw 'OpenSpec-only PR body must not claim strict validation ran.' }
+
+$script:Scenario = 'openspec-with-committed-code'
+$script:CurrentBranch = 'dw/implemented-change'
+$script:Calls = @()
+$result = Publish-GitChanges
+if (@($script:Calls | Where-Object { $_ -like 'codex *' }).Count -ne 1 -or $result.Branch -ne 'dw/implemented-change') { throw 'OpenSpec-only worktree changes on a feature branch must summarize the complete PR.' }
 
 $script:Scenario = 'mixed-openspec'
 $script:CurrentBranch = 'main'

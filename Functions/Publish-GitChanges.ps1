@@ -79,7 +79,7 @@ function Publish-GitChanges {
     $openSpecChanges = @($changedPaths | ForEach-Object {
         if ($_ -match '^openspec/changes/([^/]+)/') { $Matches[1] }
     } | Select-Object -Unique)
-    $isOpenSpecOnly = $openSpecChanges.Count -eq 1 -and @($changedPaths | Where-Object { $_ -notmatch '^openspec/changes/[^/]+/' }).Count -eq 0
+    $isOpenSpecOnly = $currentBranch -eq $defaultBranch -and $openSpecChanges.Count -eq 1 -and @($changedPaths | Where-Object { $_ -notmatch '^openspec/changes/[^/]+/' }).Count -eq 0
     $summary = if ($isOpenSpecOnly) {
         $changeName = $openSpecChanges[0]
         $titleChangeName = $changeName -replace '^add-', ''
@@ -89,9 +89,9 @@ function Publish-GitChanges {
             HumanTitle = "Add $humanChangeName OpenSpec"
             WhatChanged = "Adds the $changeName OpenSpec change."
             Why = 'Capture the proposed change before implementation.'
-            UserImpact = 'No runtime behavior changes; this pull request contains specification-only artifacts.'
+            UserImpact = "The proposal defines the intended $humanChangeName behavior."
             DeveloperImpact = 'Provides the design, requirements, and tasks for the change.'
-            Validation = 'Not run; this is a specification-only change.'
+            Validation = 'Not run.'
         }
     }
     else {

@@ -2,7 +2,8 @@ function Switch-GitWorktree {
     [CmdletBinding()]
     param(
         [string[]]$Roots = @("~/code"),
-        [switch]$RefreshCache
+        [switch]$RefreshCache,
+        [switch]$DetachedOnly
     )
 
     $currentLocation = $ExecutionContext.SessionState.Path.GetUnresolvedProviderPathFromPSPath((Get-Location).Path)
@@ -13,10 +14,11 @@ function Switch-GitWorktree {
     }
 
     $allWorktrees = @(Get-GitWorktrees -Roots $Roots -RefreshCache:$RefreshCache)
+    $excludedRepositories = @("crisp-brains", "estate-planner")
     $hiddenWorktreeCount = @($allWorktrees | Where-Object { $_.IsBare }).Count
     $entries = $allWorktrees |
         ForEach-Object {
-            if ($_.IsBare) {
+            if ($_.IsBare -or $_.RepositoryName -in $excludedRepositories -or $_.IsDetached -ne $DetachedOnly.IsPresent) {
                 return
             }
 
