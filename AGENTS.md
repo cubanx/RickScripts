@@ -14,8 +14,8 @@ This is a PowerShell module called `RickScripts` containing personal development
 
 ### Module Management
 - **Install module**: Copy the entire directory to PowerShell modules path or use `Import-Module`
-- **Test functions**: Load individual functions with `. ./Functions/FunctionName.ps1`
-- **No build/test/lint commands**: This is a simple PowerShell module with no formal build process
+- **Test framework**: Pester 6.0.1 or later; use Pester for all tests instead of standalone assertion scripts
+- **Run tests**: `pwsh -NoProfile -File ./Tests/Run-Tests.ps1`
 
 ### Available Functions and Aliases
 - `Switch-Branch` (`sb`) - Interactive branch switching with fzf

@@ -1,65 +1,56 @@
-$ErrorActionPreference = 'Stop'
+BeforeAll {
+    . "$PSScriptRoot/../Functions/Get-GitWorktrees.ps1"
 
-. "$PSScriptRoot/../Functions/Get-GitWorktrees.ps1"
+    $tempRoot = if ($env:TEMP) { $env:TEMP } else { '/tmp' }
+    $script:Root = Join-Path $tempRoot 'rickscripts-gw-worktrees-test'
+    $script:LinkedWorktree = Join-Path $script:Root 'linked-worktree'
+    $script:RealRepository = Join-Path $script:Root 'real-repo'
 
-$tempRoot = if ($env:TEMP) { $env:TEMP } else { "/tmp" }
-$root = Join-Path $tempRoot "rickscripts-gw-worktrees-test"
-$linkedWorktree = Join-Path $root "linked-worktree"
-$realRepository = Join-Path $root "real-repo"
-$linkedWorktreeGitDir = Join-Path $linkedWorktree ".git"
+    Remove-Item -LiteralPath $script:Root -Recurse -Force -ErrorAction SilentlyContinue
+    New-Item -ItemType Directory -Path $script:RealRepository -Force | Out-Null
+    New-Item -ItemType Directory -Path $script:LinkedWorktree -Force | Out-Null
+    New-Item -ItemType Directory -Path (Join-Path (Join-Path $script:RealRepository '.git') 'worktrees') -Force | Out-Null
+    Set-Content -LiteralPath (Join-Path $script:LinkedWorktree '.git') -Value "gitdir: $script:RealRepository/.git/worktrees/linked-worktree"
 
-Remove-Item -LiteralPath $root -Recurse -Force -ErrorAction SilentlyContinue
-New-Item -ItemType Directory -Path $realRepository -Force | Out-Null
-New-Item -ItemType Directory -Path $linkedWorktree -Force | Out-Null
-New-Item -ItemType Directory -Path (Join-Path (Join-Path $realRepository ".git") "worktrees") -Force | Out-Null
+    function git {
+        param([Parameter(ValueFromRemainingArguments)][string[]]$Args)
 
-Set-Content -LiteralPath $linkedWorktreeGitDir -Value "gitdir: $realRepository/.git/worktrees/linked-worktree"
-
-function git {
-    param(
-        [Parameter(ValueFromRemainingArguments)]
-        [string[]]$Args
-    )
-
-    if ($Args[0] -eq "-C") {
-        $path = $Args[1]
-        $command = ($Args[2..($Args.Length - 1)] -join ' ')
-
-        if ($path -eq $linkedWorktree -and $command -eq "rev-parse --path-format=absolute --git-common-dir") {
-            $global:LASTEXITCODE = 0
-            return "$realRepository/.git/worktrees/linked-worktree"
+        if ($Args[0] -eq '-C') {
+            $path = $Args[1]
+            $command = $Args[2..($Args.Length - 1)] -join ' '
+            if ($path -eq $script:LinkedWorktree -and $command -eq 'rev-parse --path-format=absolute --git-common-dir') {
+                $global:LASTEXITCODE = 0
+                return "$script:RealRepository/.git/worktrees/linked-worktree"
+            }
+            if ($path -eq $script:RealRepository -and $command -eq 'worktree list --porcelain') {
+                $global:LASTEXITCODE = 0
+                return @(
+                    "worktree $script:LinkedWorktree"
+                    'HEAD deadbeef'
+                    'detached'
+                    ''
+                    "worktree $script:Root/secondary-worktree"
+                    'HEAD cafebabe'
+                    'branch refs/heads/main'
+                )
+            }
         }
 
-        if ($path -eq $realRepository -and $command -eq "worktree list --porcelain") {
-            $global:LASTEXITCODE = 0
-            return @(
-                "worktree $linkedWorktree",
-                "HEAD deadbeef",
-                "detached",
-                "",
-                "worktree $root/secondary-worktree",
-                "HEAD cafebabe",
-                "branch refs/heads/main"
-            )
-        }
+        $global:LASTEXITCODE = 0
+        return @()
     }
-
-    $global:LASTEXITCODE = 0
-    return @()
 }
 
-$worktrees = Get-GitWorktrees -Roots @($root)
-
-if (-not $worktrees) {
-    throw "Expected worktrees to be discovered from a linked worktree root."
+AfterAll {
+    Remove-Item -LiteralPath $script:Root -Recurse -Force -ErrorAction SilentlyContinue
 }
 
-if ($worktrees[0].RepositoryRoot -ne $realRepository) {
-    throw "Expected repository root to be resolved to the real repository."
-}
+Describe 'Get-GitWorktrees' {
+    It 'discovers registered worktrees from a linked worktree root' {
+        $worktrees = Get-GitWorktrees -Roots @($script:Root)
 
-if ($worktrees.Count -ne 2) {
-    throw "Expected 2 porcelain worktrees, found $($worktrees.Count)."
+        $worktrees | Should -Not -BeNullOrEmpty
+        $worktrees[0].RepositoryRoot | Should -Be $script:RealRepository
+        $worktrees.Count | Should -Be 2
+    }
 }
-
-Remove-Item -LiteralPath $root -Recurse -Force -ErrorAction SilentlyContinue
