@@ -149,6 +149,9 @@ function Watch-PullRequest {
     Watch-PullRequest -Repo ia 42
 
     .EXAMPLE
+    Watch-PullRequest ia 42
+
+    .EXAMPLE
     Watch-PullRequest
 
     Lists eligible non-draft pull requests from the configured repositories.
@@ -158,8 +161,13 @@ function Watch-PullRequest {
         [Parameter(Position = 0)]
         [string]$PullRequest,
 
+        [Parameter(Position = 1)]
         [string]$Repo
     )
+
+    if ($Repo -and $script:PullRequestRepositories.ContainsKey($PullRequest)) {
+        $PullRequest, $Repo = $Repo, $PullRequest
+    }
 
     if (-not $PullRequest) {
         if (-not (Get-Command fzf -ErrorAction SilentlyContinue)) { throw "Required dependency 'fzf' was not found in PATH." }

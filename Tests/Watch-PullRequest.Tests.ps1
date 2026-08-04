@@ -133,6 +133,11 @@ Describe 'Watch-PullRequest' {
                 (Get-Location).Path | Should -Be $originalLocation
             }
 
+            $script:Locations = @()
+            Watch-PullRequest ia 42
+            @($script:Locations | Where-Object { $_ -ne $testRepository }).Count | Should -Be 0
+            (Get-Location).Path | Should -Be $originalLocation
+
             $script:Scenario = 'failed-checks'
             { Watch-PullRequest -Repo ia 42 } | Should -Throw
             (Get-Location).Path | Should -Be $originalLocation
