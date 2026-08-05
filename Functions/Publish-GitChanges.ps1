@@ -96,7 +96,7 @@ function Publish-GitChanges {
     $openSpecChanges = @($changedPaths | ForEach-Object {
         if ($_ -match '^openspec/changes/([^/]+)/') { $Matches[1] }
     } | Select-Object -Unique)
-    $isOpenSpecOnly = $openSpecChanges.Count -eq 1 -and @($changedPaths | Where-Object { $_ -notmatch '^openspec/changes/[^/]+/' }).Count -eq 0
+    $isOpenSpecOnly = $currentBranch -eq $defaultBranch -and $openSpecChanges.Count -eq 1 -and @($changedPaths | Where-Object { $_ -notmatch '^openspec/changes/[^/]+/' }).Count -eq 0
     $summary = if ($isOpenSpecOnly) {
         $changeName = $openSpecChanges[0]
         $titleChangeName = $changeName -replace '^add-', ''

@@ -68,7 +68,7 @@ function Get-CodexChangeSummary {
         Invoke-CodexGitPublishingCommand -FileName 'codex' -Arguments @(
             'exec', '-m', 'gpt-5.6-luna', '-c', 'model_reasoning_effort="low"', '--ephemeral', '--sandbox', 'read-only', '--output-schema', $schemaPath,
             '--output-last-message', $outputPath,
-            'Inspect the complete current worktree diff, including staged, unstaged, and untracked changes. Follow repository AGENTS.md instructions. Return JSON only: a terse spaced conventional CommitMessage, a human PR title, grounded what/why/user/developer impact, and validation claims only for evidence actually present. Do not mutate anything.'
+            "Inspect the complete proposed pull request: the current branch relative to origin's default branch, plus staged, unstaged, and untracked worktree changes. Follow repository AGENTS.md instructions. Return JSON only: a terse spaced conventional CommitMessage, a human PR title, grounded what/why/user/developer impact, and validation claims only for evidence actually present. Do not mutate anything."
         ) | Out-Null
 
         $json = Get-Content -LiteralPath $outputPath -Raw
