@@ -19,6 +19,8 @@ BeforeAll {
         }
     }
 
+    function Start-Sleep {}
+
     function gh {
         param([Parameter(ValueFromRemainingArguments)][string[]]$Arguments)
 
@@ -31,13 +33,39 @@ BeforeAll {
             $repository = Split-Path -Leaf (Get-Location)
             return ConvertTo-Json -InputObject @($script:InventoryByRepository[$repository]) -Depth 8
         }
-        if ($command -eq 'pr view 42 --json headRefOid,title,url') {
+        if ($command -eq 'pr view 42 --json headRefOid,title,url,statusCheckRollup') {
             $script:ViewCount++
             $head = if ($script:Scenario -eq 'changed-head' -and $script:ViewCount -gt 1) { 'fedcba9876543210' } else { '0123456789abcdef' }
-            return @{ headRefOid = $head; title = 'Keep the wormhole open'; url = 'https://github.com/example/internal-apps/pull/42' } | ConvertTo-Json
+            return @{ headRefOid = $head; title = 'Keep the wormhole open'; url = 'https://github.com/example/internal-apps/pull/42'; statusCheckRollup = @() } | ConvertTo-Json
+        }
+        if ($command -in @('pr view 61 --json headRefOid,title,url,statusCheckRollup', 'pr view https://github.com/Crisp-Inc/data-warehouse/pull/61 --json headRefOid,title,url,statusCheckRollup')) {
+            $checks = @(
+                if ($script:Scenario -eq 'automatic-pending' -and -not $script:AutomaticComplete) {
+                    @{ __typename = 'CheckRun'; name = 'Python code fitness'; status = 'IN_PROGRESS'; conclusion = '' }
+                }
+                else {
+                    @{ __typename = 'CheckRun'; name = 'Python code fitness'; status = 'COMPLETED'; conclusion = 'SUCCESS' }
+                }
+                @{ __typename = 'CheckRun'; name = 'dbt CI'; status = 'COMPLETED'; conclusion = 'SUCCESS' }
+            )
+            if ($script:Scenario -eq 'already-staged' -or $script:StagingComplete) {
+                $checks += @{ __typename = 'StatusContext'; context = 'Snowflake PR staging'; state = 'SUCCESS'; targetUrl = 'https://github.com/Crisp-Inc/data-warehouse/actions/runs/1701' }
+            }
+            elseif ($script:StagingDispatched) {
+                $checks += @{ __typename = 'StatusContext'; context = 'Snowflake PR staging'; state = 'PENDING'; targetUrl = 'https://github.com/Crisp-Inc/data-warehouse/actions/runs/1701' }
+            }
+            return @{ headRefOid = '61abcdef'; title = 'Publish Yoda Gong transcript consumer'; url = 'https://github.com/Crisp-Inc/data-warehouse/pull/61'; statusCheckRollup = $checks } | ConvertTo-Json -Depth 4
         }
         if ($command -eq 'pr checks 42 --watch --fail-fast') {
             if ($script:Scenario -eq 'failed-checks') { $global:LASTEXITCODE = 1 }
+            return
+        }
+        if ($command -eq 'workflow run snowflake-pr-staging.yml --repo Crisp-Inc/data-warehouse --ref main -f pull_request=61') {
+            $script:StagingDispatched = $true
+            return
+        }
+        if ($command -in @('pr checks 61 --watch --fail-fast', 'pr checks https://github.com/Crisp-Inc/data-warehouse/pull/61 --watch --fail-fast')) {
+            if ($script:StagingDispatched) { $script:StagingComplete = $true } else { $script:AutomaticComplete = $true }
             return
         }
         if ($command -eq 'pr merge 42 --merge --match-head-commit 0123456789abcdef') {
@@ -45,6 +73,8 @@ BeforeAll {
             return
         }
         if ($command -eq 'pr merge 42 --merge --match-head-commit fedcba9876543210') { return }
+        if ($command -eq 'pr merge 61 --merge --match-head-commit 61abcdef') { return }
+        if ($command -eq 'pr merge https://github.com/Crisp-Inc/data-warehouse/pull/61 --merge --match-head-commit 61abcdef') { return }
         throw "Unexpected gh call: $command"
     }
 
@@ -82,6 +112,9 @@ Describe 'Watch-PullRequest' {
         $script:InventoryByRepository = @{}
         $script:Scenario = 'success'
         $script:ViewCount = 0
+        $script:StagingDispatched = $false
+        $script:StagingComplete = $false
+        $script:AutomaticComplete = $false
     }
 
     It 'exports the wpr alias' {
@@ -94,6 +127,38 @@ Describe 'Watch-PullRequest' {
         $script:Calls | Should -Contain 'pr merge 42 --merge --match-head-commit 0123456789abcdef'
         ($script:Calls -join ' ') | Should -Not -Match '(?:^|\s)--admin(?:\s|$)'
         @($script:HostLines | Where-Object { $_.Text -eq 'Watching Keep the wormhole open — https://github.com/example/internal-apps/pull/42' }).Count | Should -Be 1
+        @($script:Calls | Where-Object { $_ -like 'workflow run *' }).Count | Should -Be 0
+    }
+
+    It 'dispatches Snowflake staging only for a data-warehouse pull request and waits for its check' {
+        Watch-PullRequest 61
+
+        $script:Calls | Should -Contain 'workflow run snowflake-pr-staging.yml --repo Crisp-Inc/data-warehouse --ref main -f pull_request=61'
+        $script:Calls | Should -Contain 'pr checks 61 --watch --fail-fast'
+        $script:Calls | Should -Contain 'pr merge 61 --merge --match-head-commit 61abcdef'
+    }
+
+    It 'does not repeat Snowflake staging already passed on the current head' {
+        $script:Scenario = 'already-staged'
+
+        Watch-PullRequest 61
+
+        @($script:Calls | Where-Object { $_ -like 'workflow run *' }).Count | Should -Be 0
+    }
+
+    It 'waits for automatic data-warehouse checks before dispatching staging' {
+        $script:Scenario = 'automatic-pending'
+
+        Watch-PullRequest 61
+
+        [array]::IndexOf($script:Calls, 'pr checks 61 --watch --fail-fast') | Should -BeLessThan ([array]::IndexOf($script:Calls, 'workflow run snowflake-pr-staging.yml --repo Crisp-Inc/data-warehouse --ref main -f pull_request=61'))
+        @($script:Calls | Where-Object { $_ -eq 'pr checks 61 --watch --fail-fast' }).Count | Should -Be 2
+    }
+
+    It 'uses the pull request number when invoked by data-warehouse URL' {
+        Watch-PullRequest https://github.com/Crisp-Inc/data-warehouse/pull/61
+
+        $script:Calls | Should -Contain 'workflow run snowflake-pr-staging.yml --repo Crisp-Inc/data-warehouse --ref main -f pull_request=61'
     }
 
     It 'does not merge when checks fail' {

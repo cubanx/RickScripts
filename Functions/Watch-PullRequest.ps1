@@ -122,7 +122,7 @@ function Show-PullRequestInventoryReport {
 function Get-PullRequestDetails {
     param([Parameter(Mandatory)][string]$PullRequest)
 
-    $json = & gh pr view $PullRequest --json 'headRefOid,title,url'
+    $json = & gh pr view $PullRequest --json 'headRefOid,title,url,statusCheckRollup'
     if ($LASTEXITCODE -ne 0) { throw "Could not read pull request '$PullRequest'." }
     try {
         $details = $json | ConvertFrom-Json
@@ -132,6 +132,28 @@ function Get-PullRequestDetails {
     }
     if (-not $details.headRefOid -or -not $details.title -or -not $details.url) { throw "Pull request '$PullRequest' did not return its head, title, and URL." }
     return $details
+}
+
+function Get-PullRequestCheck {
+    param(
+        [Parameter(Mandatory)]$Details,
+        [Parameter(Mandatory)][string]$Name
+    )
+
+    @($Details.statusCheckRollup | Where-Object {
+        if ($_.__typename -eq 'StatusContext') { $_.context -eq $Name } else { $_.name -eq $Name }
+    }) | Select-Object -Last 1
+}
+
+function Test-PullRequestCheckSucceeded {
+    param(
+        [Parameter(Mandatory)]$Details,
+        [Parameter(Mandatory)][string]$Name
+    )
+
+    $check = Get-PullRequestCheck -Details $Details -Name $Name
+    if ($check.__typename -eq 'StatusContext') { return $check.state -eq 'SUCCESS' }
+    return $check.status -eq 'COMPLETED' -and $check.conclusion -eq 'SUCCESS'
 }
 
 function Watch-PullRequest {
@@ -210,9 +232,42 @@ function Watch-PullRequest {
     try {
         $details = Get-PullRequestDetails -PullRequest $PullRequest
         Write-Host "Watching $($details.title) — $($details.url)"
+        $isDataWarehouse = $details.url -match '^https://github\.com/Crisp-Inc/data-warehouse/pull/(?<number>\d+)/?$'
+        $dataWarehousePullRequest = if ($isDataWarehouse) { $Matches.number }
 
-        while ($true) {
+        :watch while ($true) {
             $head = $details.headRefOid
+
+            if ($isDataWarehouse) {
+                $automaticChecksPassed = @(@('Python code fitness', 'dbt CI') | Where-Object {
+                    Test-PullRequestCheckSucceeded -Details $details -Name $_
+                }).Count -eq 2
+                $stagingCheck = Get-PullRequestCheck -Details $details -Name 'Snowflake PR staging'
+                $stagingPending = $stagingCheck.state -in @('EXPECTED', 'PENDING')
+
+                if ($automaticChecksPassed -and -not $stagingPending -and -not (Test-PullRequestCheckSucceeded -Details $details -Name 'Snowflake PR staging')) {
+                    $previousTarget = $stagingCheck.targetUrl
+                    Write-Host 'Dispatching Snowflake PR staging.'
+                    & gh workflow run snowflake-pr-staging.yml --repo Crisp-Inc/data-warehouse --ref main -f "pull_request=$dataWarehousePullRequest"
+                    if ($LASTEXITCODE -ne 0) { throw "Could not dispatch Snowflake staging for pull request '$PullRequest'." }
+
+                    $stagingReported = $false
+                    for ($attempt = 0; $attempt -lt 30; $attempt++) {
+                        Start-Sleep -Seconds 2
+                        $details = Get-PullRequestDetails -PullRequest $PullRequest
+                        if ($details.headRefOid -ne $head) {
+                            Write-Host "Pull request head changed from $head to $($details.headRefOid); restarting checks."
+                            continue watch
+                        }
+                        $stagingCheck = Get-PullRequestCheck -Details $details -Name 'Snowflake PR staging'
+                        if ($stagingCheck -and $stagingCheck.targetUrl -ne $previousTarget) {
+                            $stagingReported = $true
+                            break
+                        }
+                    }
+                    if (-not $stagingReported) { throw "Snowflake staging did not report a check for pull request '$PullRequest'." }
+                }
+            }
 
             & gh pr checks $PullRequest --watch --fail-fast
             $checksExitCode = $LASTEXITCODE
@@ -223,6 +278,7 @@ function Watch-PullRequest {
                 continue
             }
             if ($checksExitCode -ne 0) { throw "Pull request '$PullRequest' checks did not pass; not merging." }
+            if ($isDataWarehouse -and -not (Test-PullRequestCheckSucceeded -Details $details -Name 'Snowflake PR staging')) { continue }
 
             & gh pr merge $PullRequest --merge --match-head-commit $head
             if ($LASTEXITCODE -eq 0) { return }
