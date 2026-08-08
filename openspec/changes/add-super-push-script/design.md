@@ -1,6 +1,6 @@
 ## Context
 
-The current dotfiles prototype combines the security broker with the Super Push implementation. The intended boundary is one canonical RickScripts implementation and a later dotfiles-only broker that accepts no arguments, starts a fixed RickScripts script with fixed PowerShell and `-NoProfile`, and remains the only approved human or Codex entrypoint.
+The current dotfiles prototype combines the security broker with the Super Push implementation. The intended boundary is one exported RickScripts cmdlet and a later dotfiles-only broker that accepts no arguments, starts fixed PowerShell with `-NoProfile`, imports the fixed RickScripts manifest, invokes `Invoke-SuperPush`, and remains the only approved Codex entrypoint. Humans may invoke the cmdlet directly from their RickScripts-enabled PowerShell CLI.
 
 Super Push is an exceptional production mutation. Normal credentials retain the feature-branch and pull-request path; the dedicated selected-repository GitHub App is the only bypass principal. Local validation must not access credentials, GitHub settings, protected refs, or external systems.
 
@@ -8,24 +8,24 @@ Super Push is an exceptional production mutation. Normal credentials retain the 
 
 **Goals:**
 
-- Own all Super Push behavior and focused behavioral tests in one standalone RickScripts script.
+- Own all Super Push behavior and focused behavioral tests in one exported RickScripts advanced function.
 - Fix the operation to a clean, non-empty fast-forward from local `HEAD` to `refs/heads/main` in the current `Crisp-Inc/*` checkout.
 - Show immutable evidence, require exact interactive confirmation, detect drift three times, isolate the least-privilege token, push once, revoke it, and report sanitized evidence.
 - Use only PowerShell/.NET, fixed Git and 1Password executables, and GitHub REST APIs.
 
 **Non-Goals:**
 
-- Exporting a RickScripts module command or approving direct Codex invocation of the script.
+- Direct Codex invocation of the cmdlet outside the fixed broker.
 - Force pushes, arbitrary arguments, repositories, refs, credentials, retries, fallbacks, unattended use, or a general elevated shell.
 - Dotfiles broker/hook/policy/install changes or any real GitHub App, installation, ruleset, 1Password, credential, or push operation.
 
 ## Decisions
 
-### Keep the canonical artifact standalone and unexported
+### Make the canonical artifact an exported advanced function
 
-Add `Scripts/Invoke-SuperPush.ps1`, outside `Functions/` and `RickScripts.psd1`. It accepts no external parameters and rejects every supplied argument. Its internal functions remain in the same file so Pester can fake process and API boundaries without creating a helper module. The future dotfiles broker will contain only fixed executable/script paths and no behavior to drift.
+Add `Functions/Invoke-SuperPush.ps1`, loaded by the existing module convention and explicitly exported from `RickScripts.psd1`. `Invoke-SuperPush` is an advanced function with no custom parameters; its internal helpers remain in the same file so Pester can fake process and API boundaries without creating a helper module. The future dotfiles broker will contain only fixed PowerShell/module invocation and no behavior to drift.
 
-Making Super Push an exported module function was rejected: module profiles and ordinary Codex shells are intentionally outside the approved entry boundary. Copying the prototype or sharing helper files was rejected because either creates two implementations or a wider publication unit.
+Humans may invoke the cmdlet from an ordinary RickScripts-enabled PowerShell session. Codex may invoke it only through the fixed no-argument broker, whose no-profile child imports `/Users/cubanx/code/RickScripts/RickScripts.psd1` and calls the cmdlet. Keeping a standalone implementation plus an exported wrapper was rejected because the wrapper adds a second artifact without improving the boundary.
 
 ### Derive and freeze one immutable Git update
 
@@ -37,7 +37,7 @@ Run the same complete state read before credential access and after token mintin
 
 ### Isolate the human-only App credential and smallest token
 
-Use fixed Crisp account `2KC5FVMXXJGKDG7LGHWF2OJ2N4`, fixed `/opt/homebrew/bin/op`, and fixed item title `Super Push GitHub App`. Clear service-account/session selectors only inside the script process, select the Crisp human account, and load exactly one `client-id` and `private-key`. Reject the `Automation` vault; external provisioning must additionally keep the item outside every Local Automation scope because the script cannot safely introspect service-account grants.
+Use fixed Crisp account `2KC5FVMXXJGKDG7LGHWF2OJ2N4`, fixed `/opt/homebrew/bin/op`, and fixed item title `Super Push GitHub App`. Clear service-account/session selectors only inside the invoking PowerShell process, select the Crisp human account, and load exactly one `client-id` and `private-key`. Reject the `Automation` vault; external provisioning must additionally keep the item outside every Local Automation scope because the cmdlet cannot safely introspect service-account grants. A direct human invocation keeps credentials only in that current process; brokered Codex invocation keeps them out of the ordinary Codex process by using the fixed no-profile child.
 
 Sign a short-lived RS256 App JWT using built-in .NET RSA. Verify the repository installation is owned by `Crisp-Inc`, uses selected repositories, and has no permission beyond `contents: write` plus implicit `metadata: read`. Request and verify a token limited to the current repository and `contents: write`. No SDK or JWT package is needed.
 
@@ -57,12 +57,12 @@ Attempt installation-token revocation in `finally`, clear credential/auth variab
 
 ## Migration Plan
 
-1. Merge RickScripts through the normal pull-request path after local review and validation.
-2. In the dependent dotfiles task, replace the prototype with the tiny fixed no-argument broker plus hook/policy/install wiring only.
+1. Merge RickScripts through the normal pull-request path after local review and validation; the installed module symlink then exposes `Invoke-SuperPush` after module reload.
+2. In the dependent dotfiles task, replace the prototype with the tiny fixed no-argument broker that imports the fixed RickScripts manifest and invokes the cmdlet, plus hook/policy/install wiring only.
 3. Under separate task-scoped approvals, provision or modify the GitHub App, selected-repository installation, per-repository Always-allow ruleset actor, and human-only 1Password item.
 4. Authorize each credential access and real push independently when a concrete exceptional push is required.
 
-Rollback is server-first: remove ruleset bypass entries, suspend or uninstall the App, revoke its key, and remove the 1Password item. The RickScripts script can then remain inert or be reverted normally.
+Rollback is server-first: remove ruleset bypass entries, suspend or uninstall the App, revoke its key, and remove the 1Password item. The RickScripts cmdlet can then remain inert or be reverted normally.
 
 ## Open Questions
 

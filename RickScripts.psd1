@@ -40,7 +40,8 @@
         'Repair-UnsignedCommits',
         'Move-JiraItemToBoard',
         'Show-JiraBoard',
-        'Save-DotfilesChanges'
+        'Save-DotfilesChanges',
+        'Invoke-SuperPush'
     )
     
     # Aliases to export from this module

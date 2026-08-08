@@ -30,6 +30,7 @@ The user's manual-test surface is `/Users/cubanx/code/RickScripts` on local `mai
 - `Open-ProjectFolder` (`opf`) - Open directory in VS Code using fzf
 - `Get-CodexChangeSummary` - Generate a read-only structured Codex Git summary
 - `Publish-GitChanges` (`yeet`) - Stage the complete worktree and create or update a GitHub pull request
+- `Invoke-SuperPush` - Deliberately confirmed fast-forward push of local HEAD to protected Crisp main
 - `Get-GitWorktrees` - List registered Git worktrees from cached root repos under `~/code`
 - `Get-GitStash` (`ggs`) - Interactive stash selection and pop with fzf
 - `Remove-HistoryItem` (`rhi`) - Remove items from PowerShell history interactively
@@ -64,6 +65,7 @@ The module follows PowerShell best practices:
 - `Switch-GitWorktree` - Git worktree selection and directory switching
 - `Remove-LocalBranchesThatAreMerged` - Branch cleanup
 - `Publish-GitChanges` - Guarded GitHub pull-request publishing; includes every worktree change and stops before mutation if origin, GitHub, or worktree checks fail
+- `Invoke-SuperPush` - Exceptional no-argument GitHub App path for one confirmed fast-forward update to Crisp main
 - `Get-GitWorktrees` - Git worktree inventory from cached root repositories
 - `Get-GitStash` - Stash management
 - `Move-IssueState` - Move GitLab issues between workflow states

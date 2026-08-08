@@ -522,11 +522,19 @@ function Remove-SuperPushToken {
 }
 
 function Invoke-SuperPush {
-    param([string[]]$SuppliedArguments = @())
+    <#
+    .SYNOPSIS
+    Performs one deliberately confirmed fast-forward push of local HEAD to Crisp main.
 
-    if ($SuppliedArguments.Count -ne 0) {
-        throw 'usage: llm-super-push'
-    }
+    .DESCRIPTION
+    Uses the dedicated selected-repository GitHub App after immutable preflight evidence
+    and exact interactive confirmation. The cmdlet accepts no custom parameters.
+
+    .EXAMPLE
+    Invoke-SuperPush
+    #>
+    [CmdletBinding()]
+    param()
 
     $confirmed = Get-SuperPushState
     Show-SuperPushEvidence $confirmed
@@ -596,9 +604,4 @@ function Invoke-SuperPush {
     }
 
     Write-Host "Super Push succeeded. $audit"
-}
-
-$testing = Get-Variable -Name SuperPushTesting -Scope Script -ErrorAction SilentlyContinue
-if (-not ($testing -and $testing.Value)) {
-    Invoke-SuperPush -SuppliedArguments $args
 }

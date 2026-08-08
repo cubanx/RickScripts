@@ -1,9 +1,11 @@
-Describe 'Super Push standalone safety boundary' {
+Describe 'Invoke-SuperPush safety boundary' {
     BeforeAll {
-        $scriptPath = Join-Path $PSScriptRoot '../Scripts/Invoke-SuperPush.ps1'
-        Test-Path -LiteralPath $scriptPath | Should -BeTrue
-        $script:SuperPushTesting = $true
-        . $scriptPath
+        $functionPath = Join-Path $PSScriptRoot '../Functions/Invoke-SuperPush.ps1'
+        Test-Path -LiteralPath $functionPath | Should -BeTrue
+        $module = Import-Module "$PSScriptRoot/../RickScripts.psd1" -Force -PassThru
+        $script:ExportedCommands = @($module.ExportedCommands.Keys)
+        Remove-Module $module -Force
+        . $functionPath
         $script:GitExecutable = '/usr/bin/git'
 
         function New-TestSuperPushState {
@@ -26,6 +28,18 @@ Describe 'Super Push standalone safety boundary' {
                 repositories = @([pscustomobject]@{ full_name = 'Crisp-Inc/internal-apps' })
                 installation_id = 1701
             }
+        }
+    }
+
+    It 'exports a no-argument advanced function' {
+        $script:ExportedCommands | Should -Contain 'Invoke-SuperPush'
+        $command = Get-Command Invoke-SuperPush -CommandType Function
+        $command.CmdletBinding | Should -BeTrue
+        foreach ($parameter in 'Repository', 'Ref', 'Force', 'Credential', 'Yes', 'Confirm') {
+            $command.Parameters.Keys | Should -Not -Contain $parameter
+        }
+        foreach ($helper in 'Get-SuperPushState', 'Get-SuperPushAppCredential', 'New-SuperPushToken', 'Invoke-SuperPushGit') {
+            $script:ExportedCommands | Should -Not -Contain $helper
         }
     }
 
@@ -325,20 +339,11 @@ Describe 'Super Push standalone safety boundary' {
         { Invoke-SuperPush } | Should -Throw '*Push=accepted*Revoked=False*GitHub expiry is 2099-01-01T00:00:00Z*'
     }
 
-    It 'rejects arguments before any state or credential access' {
+    It 'rejects parameters before any state or credential access' {
         $script:StateReads = 0
         Mock Get-SuperPushState { $script:StateReads++ }
 
-        { Invoke-SuperPush -SuppliedArguments @('--yes') } | Should -Throw 'usage: llm-super-push'
+        { Invoke-SuperPush -Repository 'Crisp-Inc/internal-apps' } | Should -Throw
         $script:StateReads | Should -Be 0
-    }
-
-    It 'rejects arguments at the standalone process boundary' {
-        $pwsh = Get-Command pwsh -CommandType Application |
-            Select-Object -First 1 -ExpandProperty Source
-        $output = @(& $pwsh -NoProfile -File $scriptPath '--yes' 2>&1 | ForEach-Object { $_.ToString() })
-
-        $LASTEXITCODE | Should -Not -Be 0
-        $output -join "`n" | Should -Match 'usage: llm-super-push'
     }
 }
