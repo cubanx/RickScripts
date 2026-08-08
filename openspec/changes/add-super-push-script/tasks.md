@@ -14,10 +14,10 @@
 ## 3. Validation and handoff boundary
 
 - [x] 3.1 Run focused Pester tests, the full repository Pester suite, module import/export checks, and `git diff --check`.
-- [ ] 3.2 Strictly validate the complete `add-super-push-script` OpenSpec and confirm all tasks are complete.
+- [x] 3.2 Strictly validate the complete `add-super-push-script` OpenSpec and confirm all tasks are complete.
 - [x] 3.3 Confirm no dotfiles, credentials, GitHub settings, rulesets, refs, or external systems were accessed or mutated and document dotfiles integration as dependent follow-up only.
 
 ## 4. CLI availability
 
 - [x] 4.1 Add focused coverage that `Invoke-SuperPush` is exported as an advanced function with no repository, ref, force, credential, or unattended parameters.
-- [ ] 4.2 Verify the installed RickScripts symlink exposes `Invoke-SuperPush` after `Import-Module RickScripts -Force` and document the fixed no-profile dotfiles broker call shape without editing dotfiles.
+- [x] 4.2 Verify the installed RickScripts symlink exposes `Invoke-SuperPush` after `Import-Module RickScripts -Force` and document the fixed no-profile dotfiles broker call shape without editing dotfiles.
