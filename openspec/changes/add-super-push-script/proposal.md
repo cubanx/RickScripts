@@ -1,0 +1,26 @@
+## Why
+
+The Super Push implementation currently lives beside its Codex security broker, which risks duplicated behavior as the broker is reduced to policy wiring. RickScripts should own one reviewable, dependency-free PowerShell implementation while dotfiles retains only the fixed no-argument entry boundary.
+
+## What Changes
+
+- Add one standalone RickScripts PowerShell script for deliberately confirmed, non-force fast-forward pushes of local `HEAD` to `refs/heads/main` in explicitly onboarded `Crisp-Inc/*` repositories.
+- Add focused Pester coverage using local repositories and fakes only; no test accesses 1Password, GitHub credentials, GitHub settings, or a real remote.
+- Keep the script outside the RickScripts module export surface so the later dotfiles broker can invoke one fixed artifact in a no-profile child without copying implementation.
+- Defer dotfiles broker, Codex hook/policy/install wiring, GitHub App provisioning, selected-repository installation, ruleset changes, 1Password changes or access, and every real push to separately authorized follow-up work.
+
+## Capabilities
+
+### New Capabilities
+
+- `super-push-script`: Canonical, human-gated Super Push behavior, credential isolation, one-push mutation, cleanup, and sanitized audit evidence.
+
+### Modified Capabilities
+
+None.
+
+## Impact
+
+- Adds `Scripts/Invoke-SuperPush.ps1`, focused Pester tests, and OpenSpec artifacts.
+- Adds no module export and no dependency; it uses PowerShell/.NET, `/usr/bin/git`, the existing 1Password CLI, and GitHub REST endpoints at runtime.
+- The calling dotfiles task depends on this implementation becoming reviewable before replacing its prototype with the tiny broker and wiring.

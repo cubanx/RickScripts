@@ -10,6 +10,10 @@ This is a PowerShell module called `RickScripts` containing personal development
 - **Module file**: `RickScripts.psm1` - auto-loads all functions from the Functions directory
 - **Functions directory**: Contains individual `.ps1` files for each function
 
+## Immediate Test Availability
+
+The user's manual-test surface is `/Users/cubanx/code/RickScripts` on local `main`. After implementing and validating a RickScripts change, commit the task-owned files and fast-forward them into that checkout before calling the change available, unless the user explicitly requests review-before-commit or unrelated work prevents a safe update. This is standing authorization for the local commit and fast-forward only; never push without an explicit request.
+
 ## Commands
 
 ### Module Management
