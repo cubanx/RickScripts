@@ -187,12 +187,7 @@ function Show-SuperPushEvidence {
 }
 
 function Get-SuperPushConfirmation {
-    param(
-        [Parameter(Mandatory)][string]$Repository,
-        [Parameter(Mandatory)][string]$Sha
-    )
-
-    "SUPER PUSH $Repository $Sha TO $script:SuperPushRef"
+    'Approved'
 }
 
 function Test-SuperPushConfirmation {
@@ -205,13 +200,11 @@ function Test-SuperPushConfirmation {
 }
 
 function Confirm-SuperPush {
-    param([Parameter(Mandatory)][psobject]$State)
-
     if (-not [Environment]::UserInteractive -or [Console]::IsInputRedirected) {
         throw 'Super Push requires an interactive terminal; unattended input is forbidden.'
     }
 
-    $expected = Get-SuperPushConfirmation $State.Repository $State.NewSha
+    $expected = Get-SuperPushConfirmation
     Write-Host "Type exactly: $expected"
     if (-not (Test-SuperPushConfirmation (Read-Host 'Confirmation') $expected)) {
         throw 'Super Push confirmation did not match.'
@@ -538,7 +531,7 @@ function Invoke-SuperPush {
 
     $confirmed = Get-SuperPushState
     Show-SuperPushEvidence $confirmed
-    Confirm-SuperPush $confirmed
+    Confirm-SuperPush
     $beforeCredential = Get-SuperPushState
     Assert-UnchangedState $confirmed $beforeCredential
 

@@ -21,3 +21,9 @@
 
 - [x] 4.1 Add focused coverage that `Invoke-SuperPush` is exported as an advanced function with no repository, ref, force, credential, or unattended parameters.
 - [x] 4.2 Verify the installed RickScripts symlink exposes `Invoke-SuperPush` after `Import-Module RickScripts -Force` and document the fixed no-profile dotfiles broker call shape without editing dotfiles.
+
+## 5. Simple confirmation
+
+- [x] 5.1 Add focused coverage requiring exactly case-sensitive `Approved` and rejecting the previous long phrase.
+- [x] 5.2 Update the cmdlet and OpenSpec contract to use only the exact `Approved` confirmation while preserving full evidence and drift verification.
+- [x] 5.3 Run focused and full Pester validation, strict OpenSpec validation, and `git diff --check`.

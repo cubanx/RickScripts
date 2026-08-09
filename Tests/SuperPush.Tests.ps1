@@ -55,14 +55,12 @@ Describe 'Invoke-SuperPush safety boundary' {
     It 'fixes the ref, confirmation, and one non-force push shape' {
         $sha = '0123456789abcdef0123456789abcdef01234567'
 
-        Get-SuperPushConfirmation 'Crisp-Inc/internal-apps' $sha |
-            Should -Be "SUPER PUSH Crisp-Inc/internal-apps $sha TO refs/heads/main"
+        Get-SuperPushConfirmation | Should -Be 'Approved'
+        Test-SuperPushConfirmation 'Approved' (Get-SuperPushConfirmation) | Should -BeTrue
+        Test-SuperPushConfirmation 'approved' (Get-SuperPushConfirmation) | Should -BeFalse
         Test-SuperPushConfirmation `
             "SUPER PUSH Crisp-Inc/internal-apps $sha TO refs/heads/main" `
-            (Get-SuperPushConfirmation 'Crisp-Inc/internal-apps' $sha) | Should -BeTrue
-        Test-SuperPushConfirmation `
-            "super push Crisp-Inc/internal-apps $sha TO refs/heads/main" `
-            (Get-SuperPushConfirmation 'Crisp-Inc/internal-apps' $sha) | Should -BeFalse
+            (Get-SuperPushConfirmation) | Should -BeFalse
 
         $arguments = Get-SuperPushArguments '/tmp/internal-apps' 'Crisp-Inc/internal-apps' $sha
         $arguments | Should -Be @(

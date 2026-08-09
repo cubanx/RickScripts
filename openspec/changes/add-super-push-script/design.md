@@ -31,7 +31,7 @@ Humans may invoke the cmdlet from an ordinary RickScripts-enabled PowerShell ses
 
 Use fixed `/usr/bin/git`. Reject Git repository/config environment overrides and effective URL rewrites, resolve the checkout root and canonical `Crisp-Inc/<repository>` origin, require a clean worktree, resolve full `HEAD^{commit}`, and fetch exactly `refs/heads/main` into `refs/remotes/origin/main`. Reject missing main, equal SHAs, or failed ancestry.
 
-Display the repository, fixed ref, full old/new SHAs, fast-forward result, commit list, raw diff stat, raw no-color/no-ext-diff/no-textconv diff, and the fact that local hooks are disabled. Require the case-sensitive phrase `SUPER PUSH <repository> <new-sha> TO refs/heads/main` from an interactive, non-redirected terminal.
+Display the repository, fixed ref, full old/new SHAs, fast-forward result, commit list, raw diff stat, raw no-color/no-ext-diff/no-textconv diff, and the fact that local hooks are disabled. Require the case-sensitive phrase `Approved` from an interactive, non-redirected terminal.
 
 Run the same complete state read before credential access and after token minting. Compare repository, root, origin, old SHA, new SHA, target ref, cleanliness, and ancestry to the confirmed snapshot. Any drift requires a fresh invocation. GitHub remains the final compare-and-update guard because the exact non-force refspec fails if remote main races again.
 
