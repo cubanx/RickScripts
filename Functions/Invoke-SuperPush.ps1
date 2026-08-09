@@ -154,6 +154,21 @@ function Get-SuperPushState {
     }
 }
 
+function Update-SuperPushTrackingRef {
+    param([Parameter(Mandatory)][psobject]$State)
+
+    Invoke-GitCommand -Arguments @(
+        '-C', $State.Root, 'fetch', '--no-tags', '--no-recurse-submodules', 'origin',
+        'refs/heads/main:refs/remotes/origin/main'
+    ) | Out-Null
+    $trackingSha = (Invoke-GitCommand -Arguments @(
+        '-C', $State.Root, 'rev-parse', 'refs/remotes/origin/main^{commit}'
+    )).Output[-1]
+    if ($trackingSha -cne $State.NewSha) {
+        throw 'Push was accepted, but local origin/main does not match the pushed SHA.'
+    }
+}
+
 function Show-SuperPushEvidence {
     param([Parameter(Mandatory)][psobject]$State)
 
@@ -551,6 +566,7 @@ function Invoke-SuperPush {
         Assert-UnchangedState $confirmed $beforePush
         Invoke-SuperPushGit $beforePush $grant.token | Out-Null
         $pushConfirmed = $true
+        Update-SuperPushTrackingRef $beforePush
     }
     catch {
         $failure = $_.Exception.Message

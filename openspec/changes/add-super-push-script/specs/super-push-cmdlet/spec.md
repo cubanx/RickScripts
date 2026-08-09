@@ -91,10 +91,16 @@ The only remote Git mutation SHALL be one push of the verified full SHA to `refs
 #### Scenario: Push succeeds
 - **WHEN** GitHub accepts the exact fast-forward update through the App actor
 - **THEN** the cmdlet reports the immutable update once and performs no other push
+- **AND** it fetches the fixed remote `main` into local `origin/main` and requires that tracking ref to equal the pushed SHA
+- **AND** it does not pull, merge, retry, or perform another remote mutation
 
 #### Scenario: Push is rejected
 - **WHEN** GitHub rejects the update or a race makes it non-fast-forward
 - **THEN** the cmdlet reports sanitized failure and does not retry or weaken protection
+
+#### Scenario: Accepted push cannot be reflected locally
+- **WHEN** GitHub accepts the push but the post-push tracking refresh fails or resolves another SHA
+- **THEN** the cmdlet reports the push as accepted, fails local confirmation, and still revokes the token
 
 ### Requirement: Credential disposal and sanitized audit evidence
 The cmdlet SHALL attempt to revoke every minted installation token in cleanup, clear credential and Git authentication state, and never persist secret material. It SHALL report repository, fixed ref, old/new SHAs, installation identity, timestamp, push outcome, and revocation outcome without secrets. Revocation failure SHALL fail the command and report bounded server expiry; GitHub's App actor and pushed SHA SHALL remain authoritative audit evidence.

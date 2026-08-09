@@ -38,7 +38,7 @@ Describe 'Invoke-SuperPush safety boundary' {
         foreach ($parameter in 'Repository', 'Ref', 'Force', 'Credential', 'Yes', 'Confirm') {
             $command.Parameters.Keys | Should -Not -Contain $parameter
         }
-        foreach ($helper in 'Get-SuperPushState', 'Get-SuperPushAppCredential', 'New-SuperPushToken', 'Invoke-SuperPushGit') {
+        foreach ($helper in 'Get-SuperPushState', 'Get-SuperPushAppCredential', 'New-SuperPushToken', 'Invoke-SuperPushGit', 'Update-SuperPushTrackingRef') {
             $script:ExportedCommands | Should -Not -Contain $helper
         }
     }
@@ -257,6 +257,47 @@ Describe 'Invoke-SuperPush safety boundary' {
         $script:PushObservation.NoSystemConfig | Should -Be '1'
     }
 
+    It 'refreshes origin/main to the exact pushed SHA' {
+        $state = New-TestSuperPushState
+        $script:TrackingExpectedSha = $state.NewSha
+        $script:TrackingCommands = @()
+        Mock Invoke-GitCommand {
+            param([string[]]$Arguments)
+            $script:TrackingCommands += ,$Arguments
+            if ($Arguments -contains 'rev-parse') {
+                $output = @($script:TrackingExpectedSha)
+            } else {
+                $output = @()
+            }
+            [pscustomobject]@{ ExitCode = 0; Output = $output }
+        }
+
+        Update-SuperPushTrackingRef $state
+
+        $script:TrackingCommands[0] | Should -Be @(
+            '-C', $state.Root, 'fetch', '--no-tags', '--no-recurse-submodules',
+            'origin', 'refs/heads/main:refs/remotes/origin/main'
+        )
+        $script:TrackingCommands[1] | Should -Be @(
+            '-C', $state.Root, 'rev-parse', 'refs/remotes/origin/main^{commit}'
+        )
+    }
+
+    It 'rejects a post-push tracking ref that does not match the pushed SHA' {
+        $state = New-TestSuperPushState
+        Mock Invoke-GitCommand {
+            param([string[]]$Arguments)
+            $output = if ($Arguments -contains 'rev-parse') {
+                @('3333333333333333333333333333333333333333')
+            } else {
+                @()
+            }
+            [pscustomobject]@{ ExitCode = 0; Output = $output }
+        }
+
+        { Update-SuperPushTrackingRef $state } | Should -Throw '*local origin/main*'
+    }
+
     It 'reads credential metadata only through faked fixed human-account calls' {
         $script:OnePasswordCalls = @()
         Mock Invoke-OnePasswordJson {
@@ -287,6 +328,7 @@ Describe 'Invoke-SuperPush safety boundary' {
     It 'performs three state reads, one push, and one revocation' {
         $script:StateReads = 0
         $script:Pushes = 0
+        $script:TrackingRefreshes = 0
         $script:Revocations = 0
         $state = New-TestSuperPushState
         Mock Get-SuperPushState { $script:StateReads++; $state.PSObject.Copy() }
@@ -295,6 +337,7 @@ Describe 'Invoke-SuperPush safety boundary' {
         Mock Get-SuperPushAppCredential { [pscustomobject]@{ ClientId = 'Iv1.defiant'; PrivateKey = 'fake-key' } }
         Mock New-SuperPushToken { New-TestSuperPushGrant }
         Mock Invoke-SuperPushGit { $script:Pushes++ }
+        Mock Update-SuperPushTrackingRef { $script:TrackingRefreshes++ }
         Mock Remove-SuperPushToken { $script:Revocations++ }
         Mock Write-Host {}
 
@@ -302,7 +345,23 @@ Describe 'Invoke-SuperPush safety boundary' {
 
         $script:StateReads | Should -Be 3
         $script:Pushes | Should -Be 1
+        $script:TrackingRefreshes | Should -Be 1
         $script:Revocations | Should -Be 1
+    }
+
+    It 'reports an accepted push when the tracking refresh cannot be confirmed' {
+        $state = New-TestSuperPushState
+        Mock Get-SuperPushState { $state.PSObject.Copy() }
+        Mock Show-SuperPushEvidence {}
+        Mock Confirm-SuperPush {}
+        Mock Get-SuperPushAppCredential { [pscustomobject]@{ ClientId = 'Iv1.defiant'; PrivateKey = 'fake-key' } }
+        Mock New-SuperPushToken { New-TestSuperPushGrant }
+        Mock Invoke-SuperPushGit {}
+        Mock Update-SuperPushTrackingRef { throw 'Local origin/main could not be confirmed.' }
+        Mock Remove-SuperPushToken {}
+        Mock Write-Host {}
+
+        { Invoke-SuperPush } | Should -Throw '*Push=accepted*Revoked=True*local origin/main*'
     }
 
     It 'never retries a rejected push and still revokes the token' {

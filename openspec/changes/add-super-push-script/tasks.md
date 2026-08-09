@@ -27,3 +27,9 @@
 - [x] 5.1 Add focused coverage requiring exactly case-sensitive `Approved` and rejecting the previous long phrase.
 - [x] 5.2 Update the cmdlet and OpenSpec contract to use only the exact `Approved` confirmation while preserving full evidence and drift verification.
 - [x] 5.3 Run focused and full Pester validation, strict OpenSpec validation, and `git diff --check`.
+
+## 6. Post-push tracking refresh
+
+- [x] 6.1 Add focused coverage for the exact post-push `origin/main` refresh, pushed-SHA verification, and accepted-push audit on refresh failure.
+- [x] 6.2 Refresh the local `origin/main` tracking ref after the accepted push and require it to equal the pushed SHA without pulling, retrying, or performing another push.
+- [x] 6.3 Run focused and full Pester validation, strict OpenSpec validation, module reload verification, and `git diff --check`.

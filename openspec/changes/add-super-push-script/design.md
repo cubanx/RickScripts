@@ -45,6 +45,8 @@ Sign a short-lived RS256 App JWT using built-in .NET RSA. Verify the repository 
 
 The only remote Git mutation is one `/usr/bin/git push --porcelain --no-verify <fixed-https-url> <verified-sha>:refs/heads/main`. Inject authentication as a process-only HTTP header, not a URL, argument, helper, file, or persistent config. Reset extra headers and credential helpers, disable hooks, prompts, redirects, trace output, global/system config, and repository-configured token-sensitive HTTP overrides before the child can receive the token. Never force, retry, loop, or fall back.
 
+After Git accepts the push, fetch exactly `refs/heads/main` into the local `refs/remotes/origin/main` tracking ref and require it to equal the pushed SHA. This refresh performs no pull, merge, retry, or additional remote mutation; it only makes the successful result immediately visible in the local command prompt. A mismatch reports that the push was accepted but local tracking could not be confirmed.
+
 Attempt installation-token revocation in `finally`, clear credential/auth variables, and sanitize API and Git failures. Report repository, ref, old/new SHAs, installation ID, UTC timestamp, whether the push was accepted, whether revocation was confirmed, and bounded expiry when revocation fails. GitHub's App actor and pushed SHA remain authoritative audit evidence; no local audit database is added.
 
 ## Risks / Trade-offs
