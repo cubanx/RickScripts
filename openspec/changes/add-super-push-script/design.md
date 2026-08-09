@@ -31,7 +31,7 @@ Humans may invoke the cmdlet from an ordinary RickScripts-enabled PowerShell ses
 
 Use fixed `/usr/bin/git`. Reject Git repository/config environment overrides and effective URL rewrites, resolve the checkout root and canonical `Crisp-Inc/<repository>` origin, require a clean worktree, resolve full `HEAD^{commit}`, and fetch exactly `refs/heads/main` into `refs/remotes/origin/main`. Reject missing main, equal SHAs, or failed ancestry.
 
-Display the repository, fixed ref, full old/new SHAs, fast-forward result, commit list, raw diff stat, raw no-color/no-ext-diff/no-textconv diff, and the fact that local hooks are disabled. Require the case-sensitive phrase `Approved` from an interactive, non-redirected terminal.
+Display the repository, fixed ref, full old/new SHAs, fast-forward result, commit list, raw diff stat, changed-file names, and the fact that local hooks are disabled. Require the case-sensitive phrase `Approved` from an interactive, non-redirected terminal.
 
 Run the same complete state read before credential access and after token minting. Compare repository, root, origin, old SHA, new SHA, target ref, cleanliness, and ancestry to the confirmed snapshot. Any drift requires a fresh invocation. GitHub remains the final compare-and-update guard because the exact non-force refspec fails if remote main races again.
 
@@ -55,7 +55,7 @@ Attempt installation-token revocation in `finally`, clear credential/auth variab
 - Remote main can move after confirmation -> repeat fetch/identity/ancestry verification twice and use a non-force exact-SHA refspec as the final guard.
 - A repository-controlled config or hook could leak a token -> reject/override token-sensitive Git config, disable hooks and prompts, and use a fixed HTTPS destination.
 - Process termination can prevent explicit revocation -> limit every token to one repository and one permission with GitHub's maximum one-hour expiry.
-- Full diffs can be long -> keep them raw and mandatory because this path deliberately trades convenience for visible evidence.
+- Compact evidence can omit line-level context -> keep exact SHAs, commits, diff stat, and changed-file names visible; use ordinary `git diff origin/main..HEAD` before invocation when line-level review is needed.
 
 ## Migration Plan
 

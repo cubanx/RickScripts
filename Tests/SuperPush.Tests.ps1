@@ -116,8 +116,9 @@ Describe 'Invoke-SuperPush safety boundary' {
         }
     }
 
-    It 'shows immutable raw evidence and disabled hooks' {
+    It 'shows compact immutable evidence and disabled hooks' {
         $script:HostOutput = @()
+        $script:EvidenceCommands = @()
         Mock Write-Host {
             param([Parameter(Position = 0, ValueFromRemainingArguments)][object[]]$Object)
             $script:HostOutput += $Object -join ' '
@@ -125,9 +126,10 @@ Describe 'Invoke-SuperPush safety boundary' {
         Mock Invoke-GitCommand {
             param([string[]]$Arguments)
             $command = $Arguments -join ' '
+            $script:EvidenceCommands += $command
             if ($command -like '* log *') { return [pscustomobject]@{ ExitCode = 0; Output = @('abc1234 Ready the Defiant') } }
             if ($command -like '* diff --stat *') { return [pscustomobject]@{ ExitCode = 0; Output = @(' promenade.txt | 1 +') } }
-            if ($command -like '* diff --no-color *') { return [pscustomobject]@{ ExitCode = 0; Output = @('+raw diff line') } }
+            if ($command -like '* diff --name-status *') { return [pscustomobject]@{ ExitCode = 0; Output = @('M promenade.txt') } }
             throw "Unexpected Git command: $command"
         }
         $state = New-TestSuperPushState
@@ -138,10 +140,11 @@ Describe 'Invoke-SuperPush safety boundary' {
         foreach ($expected in @(
             $state.Repository, $state.TargetRef, $state.OldSha, $state.NewSha,
             'verified fast-forward', 'Local hooks: disabled',
-            'abc1234 Ready the Defiant', 'promenade.txt | 1 +', '+raw diff line'
+            'abc1234 Ready the Defiant', 'promenade.txt | 1 +', 'M promenade.txt'
         )) {
             $output | Should -Match ([regex]::Escape($expected))
         }
+        $script:EvidenceCommands -join "`n" | Should -Not -Match '\bdiff --no-color\b'
     }
 
     It 'uses a temporary local repository to verify ancestry' {

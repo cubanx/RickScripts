@@ -33,3 +33,9 @@
 - [x] 6.1 Add focused coverage for the exact post-push `origin/main` refresh, pushed-SHA verification, and accepted-push audit on refresh failure.
 - [x] 6.2 Refresh the local `origin/main` tracking ref after the accepted push and require it to equal the pushed SHA without pulling, retrying, or performing another push.
 - [x] 6.3 Run focused and full Pester validation, strict OpenSpec validation, module reload verification, and `git diff --check`.
+
+## 7. Compact preflight evidence
+
+- [x] 7.1 Add focused coverage that preflight shows changed-file names and does not request or print the raw full diff.
+- [x] 7.2 Replace raw full-diff output with compact changed-file names and update the OpenSpec evidence contract.
+- [x] 7.3 Run focused and full Pester validation, strict OpenSpec validation, module reload verification, and `git diff --check`.

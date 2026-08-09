@@ -34,7 +34,7 @@ The cmdlet SHALL expose no repository, ref, force, credential, confirmation-bypa
 - **THEN** parameter binding or the cmdlet fails before credential access or remote mutation
 
 ### Requirement: Exact fast-forward evidence and confirmation
-The cmdlet SHALL resolve local `HEAD` and fetched remote main to full commit SHAs, reject a no-op or non-fast-forward candidate, and display the exact repository, fixed ref, old/new full SHAs, ancestry, commits, raw diff stat, raw full diff, and disabled local-hook behavior. It SHALL require the case-sensitive exact interactive confirmation `Approved`, with no unattended or bypass mode.
+The cmdlet SHALL resolve local `HEAD` and fetched remote main to full commit SHAs, reject a no-op or non-fast-forward candidate, and display the exact repository, fixed ref, old/new full SHAs, ancestry, commits, raw diff stat, changed-file names, and disabled local-hook behavior. It SHALL require the case-sensitive exact interactive confirmation `Approved`, with no unattended or bypass mode.
 
 #### Scenario: Candidate is reviewable
 - **WHEN** local `HEAD` is a non-empty fast-forward of remote main

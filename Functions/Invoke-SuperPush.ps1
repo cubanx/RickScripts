@@ -193,9 +193,9 @@ function Show-SuperPushEvidence {
         $State.OldSha, $State.NewSha
     )).Output | ForEach-Object { Write-Host $_ }
     Write-Host ''
-    Write-Host 'Full diff:'
+    Write-Host 'Changed files:'
     (Invoke-GitCommand -Arguments @(
-        '-C', $State.Root, 'diff', '--no-color', '--no-ext-diff', '--no-textconv',
+        '-C', $State.Root, 'diff', '--name-status', '--no-ext-diff',
         $State.OldSha, $State.NewSha
     )).Output | ForEach-Object { Write-Host $_ }
     Write-Host ''
