@@ -39,3 +39,9 @@
 - [x] 7.1 Add focused coverage that preflight shows changed-file names and does not request or print the raw full diff.
 - [x] 7.2 Replace raw full-diff output with compact changed-file names and update the OpenSpec evidence contract.
 - [x] 7.3 Run focused and full Pester validation, strict OpenSpec validation, module reload verification, and `git diff --check`.
+
+## 8. PTY-safe confirmation input
+
+- [x] 8.1 Add focused regression coverage requiring direct console confirmation input and forbidding `Read-Host`.
+- [x] 8.2 Read the exact `Approved` confirmation through `[Console]::ReadLine()` with an explicit prompt.
+- [x] 8.3 Run focused and full Pester validation, strict OpenSpec validation, module import verification, and `git diff --check`.

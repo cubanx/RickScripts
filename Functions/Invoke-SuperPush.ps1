@@ -221,7 +221,9 @@ function Confirm-SuperPush {
 
     $expected = Get-SuperPushConfirmation
     Write-Host "Type exactly: $expected"
-    if (-not (Test-SuperPushConfirmation (Read-Host 'Confirmation') $expected)) {
+    Write-Host 'Confirmation: ' -NoNewline
+    $actual = [Console]::ReadLine()
+    if (-not (Test-SuperPushConfirmation $actual $expected)) {
         throw 'Super Push confirmation did not match.'
     }
 }

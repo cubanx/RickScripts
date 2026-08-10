@@ -2,6 +2,7 @@ Describe 'Invoke-SuperPush safety boundary' {
     BeforeAll {
         $functionPath = Join-Path $PSScriptRoot '../Functions/Invoke-SuperPush.ps1'
         Test-Path -LiteralPath $functionPath | Should -BeTrue
+        $script:SuperPushSource = Get-Content -LiteralPath $functionPath -Raw
         $module = Import-Module "$PSScriptRoot/../RickScripts.psd1" -Force -PassThru
         $script:ExportedCommands = @($module.ExportedCommands.Keys)
         Remove-Module $module -Force
@@ -69,6 +70,11 @@ Describe 'Invoke-SuperPush safety boundary' {
             "$sha`:refs/heads/main"
         )
         ($arguments -join ' ') | Should -Not -Match '(?:^|\s)--force(?:-with-lease)?(?:\s|$)'
+    }
+
+    It 'reads confirmation directly from the console' {
+        $script:SuperPushSource | Should -Match '\[Console\]::ReadLine\(\)'
+        $script:SuperPushSource | Should -Not -Match '\bRead-Host\b'
     }
 
     It 'rejects dirty, equal, and drifted state' {
