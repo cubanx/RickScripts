@@ -40,7 +40,8 @@
         'Repair-UnsignedCommits',
         'Move-JiraItemToBoard',
         'Show-JiraBoard',
-        'Save-DotfilesChanges'
+        'Save-DotfilesChanges',
+        'Close-CompletedOpenSpec'
     )
     
     # Aliases to export from this module
