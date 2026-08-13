@@ -41,7 +41,8 @@
         'Move-JiraItemToBoard',
         'Show-JiraBoard',
         'Save-DotfilesChanges',
-        'Close-CompletedOpenSpec'
+        'Close-CompletedOpenSpec',
+        'Invoke-SuperPush'
     )
     
     # Aliases to export from this module

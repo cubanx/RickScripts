@@ -12,7 +12,11 @@ This is a PowerShell module called `RickScripts` containing personal development
 
 ## Immediate Test Availability
 
+Every new user-invokable PowerShell capability must be a real advanced-function cmdlet in `Functions/<Approved-Verb>-<Noun>.ps1` and be explicitly exported from `RickScripts.psd1`. A standalone script is not an acceptable delivery shape for a user command; keep supporting helpers private rather than exporting them.
+
 The user's manual-test surface is `/Users/cubanx/code/RickScripts` on local `main`. After implementing and validating a RickScripts change, commit the task-owned files and fast-forward them into that checkout before calling the change available, unless the user explicitly requests review-before-commit or unrelated work prevents a safe update. This is standing authorization for the local commit and fast-forward only; never push without an explicit request.
+
+Before calling a new cmdlet available, verify that the installed module exposes it after `Import-Module RickScripts -Force`. Tell the user they can run that reload followed immediately by the cmdlet name in their current PowerShell session.
 
 ## Commands
 
@@ -30,6 +34,7 @@ The user's manual-test surface is `/Users/cubanx/code/RickScripts` on local `mai
 - `Open-ProjectFolder` (`opf`) - Open directory in VS Code using fzf
 - `Get-CodexChangeSummary` - Generate a read-only structured Codex Git summary
 - `Publish-GitChanges` (`yeet`) - Stage the complete worktree and create or update a GitHub pull request
+- `Invoke-SuperPush` - Deliberately confirmed fast-forward push of local HEAD to protected Crisp main
 - `Get-GitWorktrees` - List registered Git worktrees from cached root repos under `~/code`
 - `Get-GitStash` (`ggs`) - Interactive stash selection and pop with fzf
 - `Remove-HistoryItem` (`rhi`) - Remove items from PowerShell history interactively
@@ -64,6 +69,7 @@ The module follows PowerShell best practices:
 - `Switch-GitWorktree` - Git worktree selection and directory switching
 - `Remove-LocalBranchesThatAreMerged` - Branch cleanup
 - `Publish-GitChanges` - Guarded GitHub pull-request publishing; includes every worktree change and stops before mutation if origin, GitHub, or worktree checks fail
+- `Invoke-SuperPush` - Exceptional no-argument GitHub App path for one confirmed fast-forward update to Crisp main
 - `Get-GitWorktrees` - Git worktree inventory from cached root repositories
 - `Get-GitStash` - Stash management
 - `Move-IssueState` - Move GitLab issues between workflow states
