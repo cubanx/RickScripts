@@ -5,6 +5,15 @@ $script:PullRequestRepositories = @{
     rs = Join-Path $HOME 'code/RickScripts'
 }
 
+$script:PullRequestLookupQuery = @'
+query($number: Int!) {
+  dw: repository(owner: "Crisp-Inc", name: "data-warehouse") { pullRequest(number: $number) { isDraft state } }
+  ia: repository(owner: "Crisp-Inc", name: "internal-apps") { pullRequest(number: $number) { isDraft state } }
+  ea: repository(owner: "Crisp-Inc", name: "external-api") { pullRequest(number: $number) { isDraft state } }
+  rs: repository(owner: "cubanx", name: "RickScripts") { pullRequest(number: $number) { isDraft state } }
+}
+'@
+
 function Resolve-PullRequestRepository {
     param([Parameter(Mandatory)][string]$Repo)
 
@@ -159,10 +168,12 @@ function Test-PullRequestCheckSucceeded {
 function Watch-PullRequest {
     <#
     .SYNOPSIS
-    Watches a pull request's checks and merges its checked head when they pass.
+    Enables native auto-merge, retaining the staging-aware watcher for data-warehouse.
 
     .EXAMPLE
     Watch-PullRequest 42
+
+    Finds an open non-draft pull request numbered 42 in exactly one configured repository.
 
     .EXAMPLE
     Watch-PullRequest https://github.com/Crisp-Inc/data-warehouse/pull/42
@@ -226,14 +237,40 @@ function Watch-PullRequest {
         return
     }
 
+    if (-not $Repo -and $PullRequest -match '^\d+$') {
+        $json = & gh api graphql -f "query=$script:PullRequestLookupQuery" -F "number=$PullRequest"
+        if ($LASTEXITCODE -ne 0) { throw "Could not search configured repositories for pull request #$PullRequest." }
+        try {
+            $lookup = $json | ConvertFrom-Json
+        }
+        catch {
+            throw "Could not parse configured repository lookup for pull request #$PullRequest`: $($_.Exception.Message)"
+        }
+        if (-not $lookup.data) { throw "Configured repository lookup for pull request #$PullRequest returned no data." }
+        $matches = @($lookup.data.psobject.Properties | Where-Object {
+            $_.Value.pullRequest -and $_.Value.pullRequest.state -eq 'OPEN' -and -not $_.Value.pullRequest.isDraft
+        })
+        if ($matches.Count -eq 0) { throw "No open non-draft pull request #$PullRequest was found in the configured repositories." }
+        if ($matches.Count -gt 1) { throw "Pull request #$PullRequest exists in multiple configured repositories ($($matches.Name -join ', ')); specify -Repo." }
+        $Repo = $matches[0].Name
+    }
+
     $repository = if ($Repo) { Resolve-PullRequestRepository -Repo $Repo } else { $null }
     if ($repository) { Push-Location -LiteralPath $repository.Path }
 
     try {
         $details = Get-PullRequestDetails -PullRequest $PullRequest
-        Write-Host "Watching $($details.title) — $($details.url)"
         $isDataWarehouse = $details.url -match '^https://github\.com/Crisp-Inc/data-warehouse/pull/(?<number>\d+)/?$'
         $dataWarehousePullRequest = if ($isDataWarehouse) { $Matches.number }
+
+        if (-not $isDataWarehouse) {
+            Write-Host "Enabling auto-merge for $($details.title) — $($details.url)"
+            & gh pr merge $PullRequest --auto --merge --match-head-commit $details.headRefOid
+            if ($LASTEXITCODE -ne 0) { throw "Could not enable auto-merge for pull request '$PullRequest'." }
+            return
+        }
+
+        Write-Host "Watching $($details.title) — $($details.url)"
 
         :watch while ($true) {
             $head = $details.headRefOid
