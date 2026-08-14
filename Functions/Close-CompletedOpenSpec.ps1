@@ -2,6 +2,23 @@ function Close-CompletedOpenSpec {
     [CmdletBinding()]
     param()
 
+    function Invoke-LlmRepairPrompt {
+        param([Parameter(Mandatory)][string]$Prompt)
+
+        try { Set-Clipboard -Value $Prompt -ErrorAction Stop }
+        catch { throw "Could not copy the LLM repair prompt to the clipboard: $($_.Exception.Message)`n`n$Prompt" }
+
+        try {
+            & claude $Prompt
+            if ($LASTEXITCODE -ne 0) {
+                Write-Warning "Claude Code exited with code $LASTEXITCODE; the repair prompt remains on the clipboard."
+            }
+        }
+        catch {
+            Write-Warning "Could not start Claude Code; the repair prompt remains on the clipboard: $($_.Exception.Message)"
+        }
+    }
+
     $root = (& git rev-parse --show-toplevel 2>$null | Select-Object -First 1)
     if ($LASTEXITCODE -ne 0 -or [string]::IsNullOrWhiteSpace($root)) {
         throw 'Close-CompletedOpenSpec must run inside a Git repository.'
@@ -95,8 +112,7 @@ Repair only the failed OpenSpec changes below in repository '$root'. Preserve su
 Failures:
 $failureList
 "@
-            try { Set-Clipboard -Value $prompt -ErrorAction Stop }
-            catch { throw "Could not copy the LLM repair prompt to the clipboard: $($_.Exception.Message)`n`n$prompt" }
+            Invoke-LlmRepairPrompt -Prompt $prompt
             throw 'One or more completed OpenSpecs could not be archived. Successful archives remain uncommitted. LLM repair prompt copied to the clipboard.'
         }
 
@@ -106,6 +122,13 @@ $failureList
         $changeValidationExitCode = $LASTEXITCODE
         if ($specValidationExitCode -ne 0 -or $changeValidationExitCode -ne 0) {
             $details = @($specValidation + $changeValidation | ForEach-Object { [string]$_ }) -join ' '
+            $prompt = @"
+Repair strict OpenSpec validation failures in repository '$root'. Preserve successful archives already present in the worktree. Resolve the underlying spec conflicts, then run openspec validate --changes --strict and openspec validate --specs --strict. Do not commit.
+
+Validation output:
+$details
+"@
+            Invoke-LlmRepairPrompt -Prompt $prompt
             throw "Strict OpenSpec validation failed: $details Successful archives remain uncommitted."
         }
 

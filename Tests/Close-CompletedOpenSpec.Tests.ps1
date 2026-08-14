@@ -51,7 +51,7 @@ BeforeAll {
             default {
                 if ($command -notmatch '^archive (.+) -y$') { throw "Unexpected openspec call: $command" }
                 $changeName = $Matches[1]
-                if ($script:Scenario -eq 'archive-false-success' -and $changeName -eq 'older-change') {
+                if ($script:Scenario -like '*archive-false-success*' -and $changeName -eq 'older-change') {
                     return 'Aborted. No files were changed.'
                 }
 
@@ -70,12 +70,22 @@ BeforeAll {
 
         $script:Clipboard = $Value
     }
+
+    function claude {
+        param([string]$Prompt)
+
+        $script:ClaudePrompts += $Prompt
+        if ($script:Scenario -like '*claude-launch-failure*') {
+            throw 'Claude Code did not start.'
+        }
+    }
 }
 
 Describe 'Close-CompletedOpenSpec' {
     BeforeEach {
         $script:Calls = @()
         $script:Clipboard = $null
+        $script:ClaudePrompts = @()
         $script:Scenario = 'success'
         $script:CurrentBranch = 'main'
         $script:GitStatus = @()
@@ -173,6 +183,7 @@ Describe 'Close-CompletedOpenSpec' {
         { Close-CompletedOpenSpec } | Should -Throw '*LLM repair prompt copied to the clipboard*'
         $script:Clipboard | Should -Match "Repair only the failed OpenSpec changes below in repository '$([regex]::Escape($script:RepositoryRoot))'"
         $script:Clipboard | Should -Match 'older-change: Aborted\. No files were changed\.'
+        $script:ClaudePrompts | Should -Be @($script:Clipboard)
         @($script:Calls | Where-Object { $_ -like 'openspec archive *' }) |
             Should -Be @('openspec archive older-change -y', 'openspec archive newer-change -y')
         @($script:Calls | Where-Object { $_ -like 'git commit *' }).Count | Should -Be 0
@@ -181,11 +192,21 @@ Describe 'Close-CompletedOpenSpec' {
         Test-Path -LiteralPath (Join-Path $script:RepositoryRoot "openspec/changes/archive/$($script:ArchiveDate)-newer-change") | Should -BeTrue
     }
 
-    It 'does not commit when strict validation fails' {
+    It 'copies and launches the LLM repair prompt when strict validation fails' {
         $script:Scenario = 'validation-failure'
 
         { Close-CompletedOpenSpec } | Should -Throw '*strict OpenSpec validation failed*'
+        $script:Clipboard | Should -Match "Repair strict OpenSpec validation failures in repository '$([regex]::Escape($script:RepositoryRoot))'"
+        $script:ClaudePrompts | Should -Be @($script:Clipboard)
         @($script:Calls | Where-Object { $_ -like 'git commit *' }).Count | Should -Be 0
+    }
+
+    It 'keeps the clipboard repair prompt when Claude Code cannot start' {
+        $script:Scenario = 'archive-false-success-claude-launch-failure'
+
+        { Close-CompletedOpenSpec } | Should -Throw '*LLM repair prompt copied to the clipboard*'
+        $script:Clipboard | Should -Not -BeNullOrEmpty
+        $script:ClaudePrompts | Should -Be @($script:Clipboard)
     }
 
     It 'does nothing when no completed changes exist' {
