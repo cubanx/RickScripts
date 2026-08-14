@@ -42,7 +42,9 @@
         'Show-JiraBoard',
         'Save-DotfilesChanges',
         'Close-CompletedOpenSpec',
-        'Invoke-SuperPush'
+        'Invoke-SuperPush',
+        'Add-TemporaryAtlasIpAccess',
+        'Remove-TemporaryAtlasIpAccess'
     )
     
     # Aliases to export from this module
