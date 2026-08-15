@@ -520,7 +520,12 @@ function Invoke-SuperPushGit {
     finally {
         $basic = $null
         foreach ($name in $environmentNames) {
-            [Environment]::SetEnvironmentVariable($name, $previous[$name])
+            if ($null -eq $previous[$name]) {
+                Remove-Item -LiteralPath "Env:$name" -ErrorAction SilentlyContinue
+            }
+            else {
+                [Environment]::SetEnvironmentVariable($name, $previous[$name])
+            }
         }
     }
 }

@@ -264,6 +264,7 @@ Describe 'Invoke-SuperPush safety boundary' {
         $script:PushObservation.TraceCurl | Should -BeNullOrEmpty
         $script:PushObservation.GlobalConfig | Should -Be '/dev/null'
         $script:PushObservation.NoSystemConfig | Should -Be '1'
+        Test-Path Env:GIT_CONFIG | Should -BeFalse
     }
 
     It 'refreshes origin/main to the exact pushed SHA' {
