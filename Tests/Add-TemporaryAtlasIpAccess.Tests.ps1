@@ -65,6 +65,13 @@ Describe 'Add-TemporaryAtlasIpAccess' {
 
         $script:FzfInput | Should -Be @('internal-apps-preview', 'internal-apps-production', 'dev-command-center')
         $script:AtlasCalls[0][5..6] -join ' ' | Should -Be '--projectId 6a80e314c184ca88f1e6d525'
+        $script:AtlasCalls[1] -join ' ' | Should -Be 'api serviceAccounts listAccessList --clientId mdb_sa_id_6a80e7407728c0bc8d250d19 --groupId 6a80e314c184ca88f1e6d525 --output json'
+    }
+
+    It 'uses the mapped Crisp service account for an explicit known project' {
+        Add-TemporaryAtlasIpAccess -ProjectId '6a4d186f4f79ef136f23fc36' | Out-Null
+
+        $script:AtlasCalls[1] -join ' ' | Should -Be 'api serviceAccounts listAccessList --clientId mdb_sa_id_6a512b19e5787cbb617e7f9f --groupId 6a4d186f4f79ef136f23fc36 --output json'
     }
 
     It 'targets one explicit project with the current IP for eight hours by default' {

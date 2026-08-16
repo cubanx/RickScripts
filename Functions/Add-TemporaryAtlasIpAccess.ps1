@@ -1,7 +1,7 @@
 $script:TemporaryAtlasProjects = [ordered]@{
-    '6a4d186f4f79ef136f23fc36' = 'internal-apps-preview'
-    '6a4e8026f2e81bdf73451a18' = 'internal-apps-production'
-    '6a80e314c184ca88f1e6d525' = 'dev-command-center'
+    '6a4d186f4f79ef136f23fc36' = [pscustomobject]@{ Name = 'internal-apps-preview'; ServiceAccountClientId = 'mdb_sa_id_6a512b19e5787cbb617e7f9f' }
+    '6a4e8026f2e81bdf73451a18' = [pscustomobject]@{ Name = 'internal-apps-production'; ServiceAccountClientId = 'mdb_sa_id_6a512b19e5787cbb617e7f9f' }
+    '6a80e314c184ca88f1e6d525' = [pscustomobject]@{ Name = 'dev-command-center'; ServiceAccountClientId = 'mdb_sa_id_6a80e7407728c0bc8d250d19' }
 }
 
 function Get-TemporaryAtlasIpAccessStatePath {
@@ -91,9 +91,13 @@ function Add-TemporaryAtlasIpAccess {
     if (-not $ProjectId) {
         if (-not (Get-Command fzf -ErrorAction SilentlyContinue)) { throw "Required dependency 'fzf' was not found in PATH." }
 
-        $projectName = $script:TemporaryAtlasProjects.Values | fzf --height 40% --reverse --prompt 'Pick an Atlas project: '
+        $projectName = $script:TemporaryAtlasProjects.Values.Name | fzf --height 40% --reverse --prompt 'Pick an Atlas project: '
         if (-not $projectName) { return }
-        $ProjectId = ($script:TemporaryAtlasProjects.GetEnumerator() | Where-Object Value -eq $projectName).Key
+        $ProjectId = ($script:TemporaryAtlasProjects.GetEnumerator() | Where-Object { $_.Value.Name -eq $projectName }).Key
+    }
+
+    if (-not $ServiceAccountClientId -and $script:TemporaryAtlasProjects.Contains($ProjectId)) {
+        $ServiceAccountClientId = $script:TemporaryAtlasProjects[$ProjectId].ServiceAccountClientId
     }
 
     $deleteAfter = (Get-Date).ToUniversalTime().AddHours($Hours).ToString('o')
