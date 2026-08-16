@@ -59,12 +59,12 @@ Describe 'Add-TemporaryAtlasIpAccess' {
     }
 
     It 'lists human-readable Atlas projects and uses the selected project ID' {
-        $script:FzfSelection = 'internal-apps-preview'
+        $script:FzfSelection = 'dev-command-center'
 
         Add-TemporaryAtlasIpAccess | Out-Null
 
-        $script:FzfInput | Should -Be @('internal-apps-preview', 'internal-apps-production')
-        $script:AtlasCalls[0][5..6] -join ' ' | Should -Be '--projectId 6a4d186f4f79ef136f23fc36'
+        $script:FzfInput | Should -Be @('internal-apps-preview', 'internal-apps-production', 'dev-command-center')
+        $script:AtlasCalls[0][5..6] -join ' ' | Should -Be '--projectId 6a80e314c184ca88f1e6d525'
     }
 
     It 'targets one explicit project with the current IP for eight hours by default' {

@@ -1,6 +1,7 @@
 $script:TemporaryAtlasProjects = [ordered]@{
     '6a4d186f4f79ef136f23fc36' = 'internal-apps-preview'
     '6a4e8026f2e81bdf73451a18' = 'internal-apps-production'
+    '6a80e314c184ca88f1e6d525' = 'dev-command-center'
 }
 
 function Get-TemporaryAtlasIpAccessStatePath {
