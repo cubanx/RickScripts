@@ -36,6 +36,11 @@ BeforeAll {
             }
         }
     }
+
+    function fzf {
+        process { $script:FzfInput += [string]$_ }
+        end { $script:FzfSelection }
+    }
 }
 
 Describe 'Add-TemporaryAtlasIpAccess' {
@@ -47,8 +52,19 @@ Describe 'Add-TemporaryAtlasIpAccess' {
         $script:ServiceAccountListJson = '{"results":[]}'
         $script:ServiceAccountCreateJson = '{"results":[{"ipAddress":"203.0.113.42","createdAt":"2026-08-08T17:00:00Z"}]}'
         $script:ServiceAccountRequest = $null
+        $script:FzfInput = @()
+        $script:FzfSelection = $null
         $script:TemporaryAtlasIpAccessStatePath = Join-Path $TestDrive "$([guid]::NewGuid()).json"
         Mock Invoke-RestMethod { throw 'Unexpected public-IP fallback.' }
+    }
+
+    It 'lists human-readable Atlas projects and uses the selected project ID' {
+        $script:FzfSelection = 'internal-apps-preview'
+
+        Add-TemporaryAtlasIpAccess | Out-Null
+
+        $script:FzfInput | Should -Be @('internal-apps-preview', 'internal-apps-production')
+        $script:AtlasCalls[0][5..6] -join ' ' | Should -Be '--projectId 6a4d186f4f79ef136f23fc36'
     }
 
     It 'targets one explicit project with the current IP for eight hours by default' {
@@ -83,11 +99,11 @@ Describe 'Add-TemporaryAtlasIpAccess' {
         ($expiry - $startedAt).TotalMinutes | Should -BeLessThan 1441
     }
 
-    It 'requires a project ID and rejects expiry beyond the Atlas limit before invocation' {
+    It 'keeps the project ID optional and rejects expiry beyond the Atlas limit before invocation' {
         $projectParameter = (Get-Command Add-TemporaryAtlasIpAccess).Parameters.ProjectId.Attributes |
             Where-Object { $_ -is [System.Management.Automation.ParameterAttribute] }
 
-        $projectParameter.Mandatory | Should -BeTrue
+        $projectParameter.Mandatory | Should -BeFalse
         { Add-TemporaryAtlasIpAccess -ProjectId 'project-deadwood' -Hours 169 } | Should -Throw
         @($script:AtlasCalls).Count | Should -Be 0
     }

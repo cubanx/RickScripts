@@ -1,3 +1,8 @@
+$script:TemporaryAtlasProjects = [ordered]@{
+    '6a4d186f4f79ef136f23fc36' = 'internal-apps-preview'
+    '6a4e8026f2e81bdf73451a18' = 'internal-apps-production'
+}
+
 function Get-TemporaryAtlasIpAccessStatePath {
     if ($script:TemporaryAtlasIpAccessStatePath) {
         return $script:TemporaryAtlasIpAccessStatePath
@@ -65,7 +70,6 @@ function Test-PublicIPv4Address {
 function Add-TemporaryAtlasIpAccess {
     [CmdletBinding()]
     param(
-        [Parameter(Mandatory)]
         [ValidateNotNullOrEmpty()]
         [string]$ProjectId,
 
@@ -81,6 +85,14 @@ function Add-TemporaryAtlasIpAccess {
 
     if (-not (Get-Command atlas -ErrorAction SilentlyContinue)) {
         throw "Atlas CLI ('atlas') is required. Install it and authenticate a profile with Project Network Access Manager access."
+    }
+
+    if (-not $ProjectId) {
+        if (-not (Get-Command fzf -ErrorAction SilentlyContinue)) { throw "Required dependency 'fzf' was not found in PATH." }
+
+        $projectName = $script:TemporaryAtlasProjects.Values | fzf --height 40% --reverse --prompt 'Pick an Atlas project: '
+        if (-not $projectName) { return }
+        $ProjectId = ($script:TemporaryAtlasProjects.GetEnumerator() | Where-Object Value -eq $projectName).Key
     }
 
     $deleteAfter = (Get-Date).ToUniversalTime().AddHours($Hours).ToString('o')
