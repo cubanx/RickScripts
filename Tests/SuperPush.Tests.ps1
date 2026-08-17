@@ -77,6 +77,77 @@ Describe 'Invoke-SuperPush safety boundary' {
         $script:SuperPushSource | Should -Not -Match '\bRead-Host\b'
     }
 
+    It 'accepts only text documentation changed entries' {
+        $script:RawEntries = ":100644 100644 1111111111111111111111111111111111111111 2222222222222222222222222222222222222222 M`0docs/defiant.md`0"
+        $script:NumstatEntries = "1`t1`tdocs/defiant.md`0"
+        Mock Invoke-GitCommand {
+            param([string[]]$Arguments)
+            $output = if ($Arguments -contains '--raw') { $script:RawEntries } else { $script:NumstatEntries }
+            [pscustomobject]@{ ExitCode = 0; Output = @($output) }
+        }
+        $state = New-TestSuperPushState
+
+        Test-SuperPushDocumentationOnly $state | Should -BeTrue
+
+        foreach ($path in 'openspec/changes/defiant/tasks.md', 'README.md', 'CHANGELOG', 'CONTRIBUTING.rst', 'SECURITY.txt', 'LICENSE-MIT') {
+            $script:RawEntries = ":100644 100644 1111111111111111111111111111111111111111 2222222222222222222222222222222222222222 M`0$path`0"
+            $script:NumstatEntries = "1`t1`t$path`0"
+            Test-SuperPushDocumentationOnly $state | Should -BeTrue
+        }
+    }
+
+    It 'fails closed for non-doc, ambiguous, or binary changed entries' {
+        $state = New-TestSuperPushState
+        $script:RawEntries = ":100644 100644 1111111111111111111111111111111111111111 2222222222222222222222222222222222222222 M`0AGENTS.md`0"
+        $script:NumstatEntries = "1`t1`tAGENTS.md`0"
+        Mock Invoke-GitCommand {
+            param([string[]]$Arguments)
+            $output = if ($Arguments -contains '--raw') { $script:RawEntries } else { $script:NumstatEntries }
+            [pscustomobject]@{ ExitCode = 0; Output = @($output) }
+        }
+
+        Test-SuperPushDocumentationOnly $state | Should -BeFalse
+        $script:RawEntries = ":100644 100644 1111111111111111111111111111111111111111 2222222222222222222222222222222222222222 M`0docs/AGENTS.md`0"
+        $script:NumstatEntries = "1`t1`tdocs/AGENTS.md`0"
+        Test-SuperPushDocumentationOnly $state | Should -BeFalse
+        $script:RawEntries = ":100644 100644 1111111111111111111111111111111111111111 2222222222222222222222222222222222222222 M`0docs/operating`tmanual.md`0"
+        $script:NumstatEntries = "1`t1`tdocs/operating`tmanual.md`0"
+        Test-SuperPushDocumentationOnly $state | Should -BeFalse
+        $script:RawEntries = ":100644 100644 1111111111111111111111111111111111111111 2222222222222222222222222222222222222222 M`0docs/defiant.md`0:100644 100644 1111111111111111111111111111111111111111 2222222222222222222222222222222222222222 M`0Functions/warp.ps1`0"
+        $script:NumstatEntries = "1`t1`tdocs/defiant.md`01`t1`tFunctions/warp.ps1`0"
+        Test-SuperPushDocumentationOnly $state | Should -BeFalse
+        $script:RawEntries = ":100644 100644 1111111111111111111111111111111111111111 2222222222222222222222222222222222222222 R100`0docs/old.md`0docs/new.md`0"
+        $script:NumstatEntries = "1`t1`t`0docs/old.md`0docs/new.md`0"
+        Test-SuperPushDocumentationOnly $state | Should -BeFalse
+        $script:RawEntries = ":100644 100644 1111111111111111111111111111111111111111 2222222222222222222222222222222222222222 M`0docs/diagram.png`0"
+        $script:NumstatEntries = "-`t-`tdocs/diagram.png`0"
+        Test-SuperPushDocumentationOnly $state | Should -BeFalse
+        $script:RawEntries = ":120000 120000 1111111111111111111111111111111111111111 2222222222222222222222222222222222222222 M`0docs/link.md`0"
+        $script:NumstatEntries = "1`t1`tdocs/link.md`0"
+        Test-SuperPushDocumentationOnly $state | Should -BeFalse
+    }
+
+    It 'reads NUL-delimited changed metadata from Git' {
+        $root = Join-Path ([System.IO.Path]::GetTempPath()) "rickscripts-docs-only-$([guid]::NewGuid())"
+        try {
+            New-Item -ItemType Directory -Path (Join-Path $root 'docs') -Force | Out-Null
+            & $script:GitExecutable -C $root init --quiet
+            [IO.File]::WriteAllText((Join-Path $root 'docs/defiant.md'), "warp one`n")
+            & $script:GitExecutable -C $root add docs/defiant.md
+            & $script:GitExecutable -C $root -c user.name='Benjamin Sisko' -c user.email='sisko@example.test' commit --quiet -m 'Add Defiant docs'
+            $old = & $script:GitExecutable -C $root rev-parse HEAD
+            [IO.File]::AppendAllText((Join-Path $root 'docs/defiant.md'), "warp nine`n")
+            & $script:GitExecutable -C $root add docs/defiant.md
+            & $script:GitExecutable -C $root -c user.name='Benjamin Sisko' -c user.email='sisko@example.test' commit --quiet -m 'Expand Defiant docs'
+            $new = & $script:GitExecutable -C $root rev-parse HEAD
+
+            Test-SuperPushDocumentationOnly ([pscustomobject]@{ Root = $root; OldSha = $old; NewSha = $new }) | Should -BeTrue
+        }
+        finally {
+            Remove-Item -LiteralPath $root -Recurse -Force
+        }
+    }
+
     It 'rejects dirty, equal, and drifted state' {
         { Assert-CleanWorktree ' M promenade.txt' } | Should -Throw
         { Assert-DistinctCommits 'same' 'same' } | Should -Throw
@@ -343,6 +414,7 @@ Describe 'Invoke-SuperPush safety boundary' {
         $state = New-TestSuperPushState
         Mock Get-SuperPushState { $script:StateReads++; $state.PSObject.Copy() }
         Mock Show-SuperPushEvidence {}
+        Mock Test-SuperPushDocumentationOnly { $false }
         Mock Confirm-SuperPush {}
         Mock Get-SuperPushAppCredential { [pscustomobject]@{ ClientId = 'Iv1.defiant'; PrivateKey = 'fake-key' } }
         Mock New-SuperPushToken { New-TestSuperPushGrant }
@@ -357,12 +429,33 @@ Describe 'Invoke-SuperPush safety boundary' {
         $script:Pushes | Should -Be 1
         $script:TrackingRefreshes | Should -Be 1
         $script:Revocations | Should -Be 1
+        Should -Invoke Confirm-SuperPush -Times 1 -Exactly
+    }
+
+    It 'skips only the internal confirmation for documentation-only changes' {
+        $state = New-TestSuperPushState
+        Mock Get-SuperPushState { $state.PSObject.Copy() }
+        Mock Show-SuperPushEvidence {}
+        Mock Test-SuperPushDocumentationOnly { $true }
+        Mock Confirm-SuperPush {}
+        Mock Get-SuperPushAppCredential { [pscustomobject]@{ ClientId = 'Iv1.defiant'; PrivateKey = 'fake-key' } }
+        Mock New-SuperPushToken { New-TestSuperPushGrant }
+        Mock Invoke-SuperPushGit {}
+        Mock Update-SuperPushTrackingRef {}
+        Mock Remove-SuperPushToken {}
+        Mock Write-Host {}
+
+        Invoke-SuperPush
+
+        Should -Invoke Confirm-SuperPush -Times 0 -Exactly
+        Should -Invoke Test-SuperPushDocumentationOnly -Times 1 -Exactly
     }
 
     It 'reports an accepted push when the tracking refresh cannot be confirmed' {
         $state = New-TestSuperPushState
         Mock Get-SuperPushState { $state.PSObject.Copy() }
         Mock Show-SuperPushEvidence {}
+        Mock Test-SuperPushDocumentationOnly { $false }
         Mock Confirm-SuperPush {}
         Mock Get-SuperPushAppCredential { [pscustomobject]@{ ClientId = 'Iv1.defiant'; PrivateKey = 'fake-key' } }
         Mock New-SuperPushToken { New-TestSuperPushGrant }
@@ -380,6 +473,7 @@ Describe 'Invoke-SuperPush safety boundary' {
         $state = New-TestSuperPushState
         Mock Get-SuperPushState { $state.PSObject.Copy() }
         Mock Show-SuperPushEvidence {}
+        Mock Test-SuperPushDocumentationOnly { $false }
         Mock Confirm-SuperPush {}
         Mock Get-SuperPushAppCredential { [pscustomobject]@{ ClientId = 'Iv1.defiant'; PrivateKey = 'fake-key' } }
         Mock New-SuperPushToken { New-TestSuperPushGrant }
@@ -396,6 +490,7 @@ Describe 'Invoke-SuperPush safety boundary' {
         $state = New-TestSuperPushState
         Mock Get-SuperPushState { $state.PSObject.Copy() }
         Mock Show-SuperPushEvidence {}
+        Mock Test-SuperPushDocumentationOnly { $false }
         Mock Confirm-SuperPush {}
         Mock Get-SuperPushAppCredential { [pscustomobject]@{ ClientId = 'Iv1.defiant'; PrivateKey = 'fake-key' } }
         Mock New-SuperPushToken { New-TestSuperPushGrant }

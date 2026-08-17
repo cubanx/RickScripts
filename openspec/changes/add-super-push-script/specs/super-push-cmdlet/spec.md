@@ -34,7 +34,7 @@ The cmdlet SHALL expose no repository, ref, force, credential, confirmation-bypa
 - **THEN** parameter binding or the cmdlet fails before credential access or remote mutation
 
 ### Requirement: Exact fast-forward evidence and confirmation
-The cmdlet SHALL resolve local `HEAD` and fetched remote main to full commit SHAs, reject a no-op or non-fast-forward candidate, and display the exact repository, fixed ref, old/new full SHAs, ancestry, commits, raw diff stat, changed-file names, and disabled local-hook behavior. It SHALL require the case-sensitive exact interactive confirmation `Approved`, with no unattended or bypass mode.
+The cmdlet SHALL resolve local `HEAD` and fetched remote main to full commit SHAs, reject a no-op or non-fast-forward candidate, and display the exact repository, fixed ref, old/new full SHAs, ancestry, commits, raw diff stat, changed-file names, and disabled local-hook behavior. It SHALL require the case-sensitive exact interactive confirmation `Approved`, with no unattended or bypass mode, except that it MAY skip only this internal terminal confirmation for a fail-closed documentation-only update. Codex SHALL still enter through the separately native-approved `llm-super-push` broker for every real push.
 
 #### Scenario: Candidate is reviewable
 - **WHEN** local `HEAD` is a non-empty fast-forward of remote main
@@ -43,6 +43,14 @@ The cmdlet SHALL resolve local `HEAD` and fetched remote main to full commit SHA
 #### Scenario: Confirmation is unavailable or wrong
 - **WHEN** input is redirected, non-interactive, absent, or differs from the exact phrase
 - **THEN** the cmdlet fails before credential access or remote mutation
+
+#### Scenario: Documentation-only candidate
+- **WHEN** every changed entry is an ordinary text file under `docs/` or `openspec/`, or a root README, CHANGELOG, CONTRIBUTING, SECURITY, or LICENSE variant, with Git-native metadata proving no binary, symlink, submodule, malformed, or ambiguous entry and no entry Git reports as a rename or copy
+- **THEN** the cmdlet skips only its internal terminal confirmation and retains every other preflight, drift, credential, and Codex native-approval requirement
+
+#### Scenario: Candidate is mixed or uncertain
+- **WHEN** any changed entry is non-documentation, `AGENTS.md` at any depth, binary, symlink, submodule, malformed, or ambiguous, or Git reports it as a rename or copy
+- **THEN** the cmdlet requires the exact internal `Approved` confirmation
 
 #### Scenario: Candidate rewrites history
 - **WHEN** fetched remote main is not an ancestor of local `HEAD`

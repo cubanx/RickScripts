@@ -45,3 +45,9 @@
 - [x] 8.1 Add focused regression coverage requiring direct console confirmation input and forbidding `Read-Host`.
 - [x] 8.2 Read the exact `Approved` confirmation through `[Console]::ReadLine()` with an explicit prompt.
 - [x] 8.3 Run focused and full Pester validation, strict OpenSpec validation, module import verification, and `git diff --check`.
+
+## 9. Documentation-only internal confirmation exemption
+
+- [x] 9.1 Add focused coverage for accepted ordinary text documentation entries and fail-closed mixed, binary, symlink, rename, and `AGENTS.md` entries.
+- [x] 9.2 Classify Git-native raw and numstat changed-entry metadata and skip only the cmdlet's internal confirmation for eligible documentation-only updates.
+- [x] 9.3 Preserve the native Codex broker approval requirement and validate focused/full Pester, strict OpenSpec, and whitespace checks.

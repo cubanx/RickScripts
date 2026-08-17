@@ -228,6 +228,56 @@ function Confirm-SuperPush {
     }
 }
 
+function Test-SuperPushDocumentationOnly {
+    param([Parameter(Mandatory)][psobject]$State)
+
+    $raw = Invoke-GitCommand -Arguments @(
+        '-C', $State.Root, 'diff', '--raw', '-z', '--no-abbrev', '--no-ext-diff',
+        '--find-renames=100%', '--find-copies=100%',
+        $State.OldSha, $State.NewSha
+    )
+    $entries = ($raw.Output -join '').Split([char]0)
+    if ($entries.Count -lt 2 -or $entries[-1] -ne '') { return $false }
+
+    $count = 0
+    for ($index = 0; $index -lt $entries.Count - 1; $index += 2) {
+        $header = $entries[$index]
+        $path = $entries[$index + 1]
+        if ($header -notmatch '^:(?<oldMode>\d{6}) (?<newMode>\d{6}) [0-9a-f]{40,64} [0-9a-f]{40,64} (?<status>[AMD])$') {
+            return $false
+        }
+
+        $validMode = switch ($Matches.status) {
+            'A' { $Matches.oldMode -ceq '000000' -and $Matches.newMode -ceq '100644' }
+            'D' { $Matches.oldMode -ceq '100644' -and $Matches.newMode -ceq '000000' }
+            'M' { $Matches.oldMode -ceq '100644' -and $Matches.newMode -ceq '100644' }
+        }
+        if (-not $validMode -or [string]::IsNullOrWhiteSpace($path) -or
+            $path -match '[\x00-\x1F\x7F]' -or $path -imatch '(^|/)AGENTS\.md$') { return $false }
+
+        $documentPath = $path -cmatch '^docs/.+' -or
+            $path -cmatch '^openspec/.+' -or
+            $path -cmatch '^(README|CHANGELOG|CONTRIBUTING|SECURITY|LICENSE)(?:\.[A-Za-z0-9][A-Za-z0-9._-]*)?(?:-[A-Za-z0-9][A-Za-z0-9._-]*)?$'
+        if (-not $documentPath) { return $false }
+        $count++
+    }
+    if ($count -eq 0) { return $false }
+
+    $numstat = Invoke-GitCommand -Arguments @(
+        '-C', $State.Root, 'diff', '--numstat', '-z', '--no-ext-diff',
+        '--find-renames=100%', '--find-copies=100%',
+        $State.OldSha, $State.NewSha
+    )
+    $numstatEntries = ($numstat.Output -join '').Split([char]0)
+    if ($numstatEntries.Count -lt 2 -or $numstatEntries[-1] -ne '' -or
+        ($numstatEntries.Count - 1) -ne $count) { return $false }
+    foreach ($entry in $numstatEntries[0..($numstatEntries.Count - 2)]) {
+        if ($entry.StartsWith("-`t-") -or $entry -notmatch '^\d+\t\d+\t') { return $false }
+    }
+
+    $true
+}
+
 function Assert-UnchangedState {
     param(
         [Parameter(Mandatory)][psobject]$Before,
@@ -553,7 +603,9 @@ function Invoke-SuperPush {
 
     $confirmed = Get-SuperPushState
     Show-SuperPushEvidence $confirmed
-    Confirm-SuperPush
+    if (-not (Test-SuperPushDocumentationOnly $confirmed)) {
+        Confirm-SuperPush
+    }
     $beforeCredential = Get-SuperPushState
     Assert-UnchangedState $confirmed $beforeCredential
 
