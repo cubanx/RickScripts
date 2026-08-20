@@ -3,7 +3,7 @@ function Get-GitPublishingSlug {
 
     switch ($RepositoryName) {
         'data-warehouse' { return 'dw' }
-        'internal-apps' { return 'ia' }
+        'yoda' { return 'ia' }
         'external-api' { return 'ea' }
     }
 

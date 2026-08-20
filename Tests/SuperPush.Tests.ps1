@@ -11,9 +11,9 @@ Describe 'Invoke-SuperPush safety boundary' {
 
         function New-TestSuperPushState {
             [pscustomobject]@{
-                Repository = 'Crisp-Inc/internal-apps'
-                Root = '/tmp/internal-apps'
-                Origin = 'git@github.com:Crisp-Inc/internal-apps.git'
+                Repository = 'Crisp-Inc/yoda'
+                Root = '/tmp/yoda'
+                Origin = 'git@github.com:Crisp-Inc/yoda.git'
                 TargetRef = 'refs/heads/main'
                 OldSha = '1111111111111111111111111111111111111111'
                 NewSha = '2222222222222222222222222222222222222222'
@@ -26,7 +26,7 @@ Describe 'Invoke-SuperPush safety boundary' {
                 expires_at = '2099-01-01T00:00:00Z'
                 repository_selection = 'selected'
                 permissions = [pscustomobject]@{ contents = 'write' }
-                repositories = @([pscustomobject]@{ full_name = 'Crisp-Inc/internal-apps' })
+                repositories = @([pscustomobject]@{ full_name = 'Crisp-Inc/yoda' })
                 installation_id = 1701
             }
         }
@@ -45,12 +45,12 @@ Describe 'Invoke-SuperPush safety boundary' {
     }
 
     It 'accepts only supported Crisp GitHub origins' {
-        Get-CrispRepository 'git@github.com:Crisp-Inc/internal-apps.git' | Should -Be 'Crisp-Inc/internal-apps'
+        Get-CrispRepository 'git@github.com:Crisp-Inc/yoda.git' | Should -Be 'Crisp-Inc/yoda'
         Get-CrispRepository 'https://github.com/Crisp-Inc/data-warehouse.git' | Should -Be 'Crisp-Inc/data-warehouse'
         Get-CrispRepository 'ssh://git@github.com/Crisp-Inc/external-api.git' | Should -Be 'Crisp-Inc/external-api'
 
-        { Get-CrispRepository 'git@github.com:somebody/internal-apps.git' } | Should -Throw
-        { Get-CrispRepository 'https://example.com/Crisp-Inc/internal-apps.git' } | Should -Throw
+        { Get-CrispRepository 'git@github.com:somebody/yoda.git' } | Should -Throw
+        { Get-CrispRepository 'https://example.com/Crisp-Inc/yoda.git' } | Should -Throw
     }
 
     It 'fixes the ref, confirmation, and one non-force push shape' {
@@ -60,13 +60,13 @@ Describe 'Invoke-SuperPush safety boundary' {
         Test-SuperPushConfirmation 'Approved' (Get-SuperPushConfirmation) | Should -BeTrue
         Test-SuperPushConfirmation 'approved' (Get-SuperPushConfirmation) | Should -BeFalse
         Test-SuperPushConfirmation `
-            "SUPER PUSH Crisp-Inc/internal-apps $sha TO refs/heads/main" `
+            "SUPER PUSH Crisp-Inc/yoda $sha TO refs/heads/main" `
             (Get-SuperPushConfirmation) | Should -BeFalse
 
-        $arguments = Get-SuperPushArguments '/tmp/internal-apps' 'Crisp-Inc/internal-apps' $sha
+        $arguments = Get-SuperPushArguments '/tmp/yoda' 'Crisp-Inc/yoda' $sha
         $arguments | Should -Be @(
-            '-C', '/tmp/internal-apps', 'push', '--porcelain', '--no-verify',
-            'https://github.com/Crisp-Inc/internal-apps.git',
+            '-C', '/tmp/yoda', 'push', '--porcelain', '--no-verify',
+            'https://github.com/Crisp-Inc/yoda.git',
             "$sha`:refs/heads/main"
         )
         ($arguments -join ' ') | Should -Not -Match '(?:^|\s)--force(?:-with-lease)?(?:\s|$)'
@@ -153,9 +153,9 @@ Describe 'Invoke-SuperPush safety boundary' {
         { Assert-DistinctCommits 'same' 'same' } | Should -Throw
 
         $before = [pscustomobject]@{
-            Repository = 'Crisp-Inc/internal-apps'
-            Root = '/tmp/internal-apps'
-            Origin = 'git@github.com:Crisp-Inc/internal-apps.git'
+            Repository = 'Crisp-Inc/yoda'
+            Root = '/tmp/yoda'
+            Origin = 'git@github.com:Crisp-Inc/yoda.git'
             TargetRef = 'refs/heads/main'
             OldSha = 'old'
             NewSha = 'new'
@@ -270,13 +270,13 @@ Describe 'Invoke-SuperPush safety boundary' {
             expires_at = '2099-01-01T00:00:00Z'
             repository_selection = 'selected'
             permissions = [pscustomobject]@{ contents = 'write' }
-            repositories = @([pscustomobject]@{ full_name = 'Crisp-Inc/internal-apps' })
+            repositories = @([pscustomobject]@{ full_name = 'Crisp-Inc/yoda' })
         }
 
-        { Assert-SuperPushToken $grant 'Crisp-Inc/internal-apps' } | Should -Not -Throw
+        { Assert-SuperPushToken $grant 'Crisp-Inc/yoda' } | Should -Not -Throw
         { Assert-SuperPushToken $grant 'Crisp-Inc/data-warehouse' } | Should -Throw '*wrong repository scope*'
         $grant.permissions | Add-Member -NotePropertyName issues -NotePropertyValue write
-        { Assert-SuperPushToken $grant 'Crisp-Inc/internal-apps' } | Should -Throw '*broader permissions*'
+        { Assert-SuperPushToken $grant 'Crisp-Inc/yoda' } | Should -Throw '*broader permissions*'
     }
 
     It 'signs an RS256 App JWT with built-in crypto' {
@@ -317,8 +317,8 @@ Describe 'Invoke-SuperPush safety boundary' {
             [pscustomobject]@{ ExitCode = 0; Output = @('ok') }
         }
         $state = [pscustomobject]@{
-            Repository = 'Crisp-Inc/internal-apps'
-            Root = '/tmp/internal-apps'
+            Repository = 'Crisp-Inc/yoda'
+            Root = '/tmp/yoda'
             NewSha = '0123456789abcdef0123456789abcdef01234567'
         }
 
@@ -505,7 +505,7 @@ Describe 'Invoke-SuperPush safety boundary' {
         $script:StateReads = 0
         Mock Get-SuperPushState { $script:StateReads++ }
 
-        { Invoke-SuperPush -Repository 'Crisp-Inc/internal-apps' } | Should -Throw
+        { Invoke-SuperPush -Repository 'Crisp-Inc/yoda' } | Should -Throw
         $script:StateReads | Should -Be 0
     }
 }

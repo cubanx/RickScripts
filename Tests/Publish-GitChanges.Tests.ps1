@@ -120,6 +120,7 @@ Describe 'Publish-GitChanges' {
         $publisherParameters | Should -Not -Contain 'All'
         $publisherParameters | Should -Not -Contain 'Message'
         (Get-GitPublishingSlug -RepositoryName 'RickScripts') | Should -Be 'rs'
+        (Get-GitPublishingSlug -RepositoryName 'yoda') | Should -Be 'ia'
     }
 
     It 'allows blank lines at EOF but rejects trailing whitespace' {

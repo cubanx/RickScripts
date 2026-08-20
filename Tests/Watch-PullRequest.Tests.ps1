@@ -44,7 +44,7 @@ BeforeAll {
         if ($command -eq 'pr view 42 --json headRefOid,title,url,statusCheckRollup') {
             $script:ViewCount++
             $head = if ($script:Scenario -eq 'changed-head' -and $script:ViewCount -gt 1) { 'fedcba9876543210' } else { '0123456789abcdef' }
-            return @{ headRefOid = $head; title = 'Keep the wormhole open'; url = 'https://github.com/example/internal-apps/pull/42'; statusCheckRollup = @() } | ConvertTo-Json
+            return @{ headRefOid = $head; title = 'Keep the wormhole open'; url = 'https://github.com/example/yoda/pull/42'; statusCheckRollup = @() } | ConvertTo-Json
         }
         if ($command -in @('pr view 61 --json headRefOid,title,url,statusCheckRollup', 'pr view https://github.com/Crisp-Inc/data-warehouse/pull/61 --json headRefOid,title,url,statusCheckRollup')) {
             $script:ViewCount++
@@ -103,7 +103,7 @@ BeforeAll {
             mergeStateStatus = $MergeStateStatus
             reviewDecision = $ReviewDecision
             statusCheckRollup = $Checks
-            url = "https://github.com/example/internal-apps/pull/$Number"
+            url = "https://github.com/example/yoda/pull/$Number"
         }
     }
 }
@@ -143,6 +143,7 @@ Describe 'Watch-PullRequest' {
         Watch-PullRequest 42
 
         @($script:Calls | Where-Object { $_ -like 'api graphql *' }).Count | Should -Be 1
+        ($script:Calls | Where-Object { $_ -like 'api graphql *' } | Select-Object -First 1) | Should -Match 'ia: repository\(owner: "Crisp-Inc", name: "yoda"\)'
         @($script:Calls | Where-Object { $_ -like 'pr list *' }).Count | Should -Be 0
         $viewIndex = [array]::IndexOf($script:Calls, 'pr view 42 --json headRefOid,title,url,statusCheckRollup')
         $script:Locations[$viewIndex] | Should -Be $script:PullRequestRepositories.ia
@@ -168,7 +169,7 @@ Describe 'Watch-PullRequest' {
         $script:Calls | Should -Contain 'pr merge 42 --auto --merge --match-head-commit 0123456789abcdef'
         @($script:Calls | Where-Object { $_ -like 'pr checks *' }).Count | Should -Be 0
         ($script:Calls -join ' ') | Should -Not -Match '(?:^|\s)--admin(?:\s|$)'
-        @($script:HostLines | Where-Object { $_.Text -eq 'Enabling auto-merge for Keep the wormhole open — https://github.com/example/internal-apps/pull/42' }).Count | Should -Be 1
+        @($script:HostLines | Where-Object { $_.Text -eq 'Enabling auto-merge for Keep the wormhole open — https://github.com/example/yoda/pull/42' }).Count | Should -Be 1
         @($script:Calls | Where-Object { $_ -like 'workflow run *' }).Count | Should -Be 0
     }
 

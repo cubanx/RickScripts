@@ -1,6 +1,6 @@
 $script:PullRequestRepositories = @{
     dw = Join-Path $HOME 'code/crisp/data-warehouse'
-    ia = Join-Path $HOME 'code/crisp/internal-apps'
+    ia = Join-Path $HOME 'code/crisp/yoda'
     ea = Join-Path $HOME 'code/crisp/external-api'
     rs = Join-Path $HOME 'code/RickScripts'
 }
@@ -8,7 +8,7 @@ $script:PullRequestRepositories = @{
 $script:PullRequestLookupQuery = @'
 query($number: Int!) {
   dw: repository(owner: "Crisp-Inc", name: "data-warehouse") { pullRequest(number: $number) { isDraft state } }
-  ia: repository(owner: "Crisp-Inc", name: "internal-apps") { pullRequest(number: $number) { isDraft state } }
+  ia: repository(owner: "Crisp-Inc", name: "yoda") { pullRequest(number: $number) { isDraft state } }
   ea: repository(owner: "Crisp-Inc", name: "external-api") { pullRequest(number: $number) { isDraft state } }
   rs: repository(owner: "cubanx", name: "RickScripts") { pullRequest(number: $number) { isDraft state } }
 }
