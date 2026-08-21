@@ -90,7 +90,6 @@ function Publish-GitChanges {
     Write-Host "Staged scope: $($staged.Count) file(s)."
     Write-Host "Unstaged/untracked scope: $($unstagedOrUntracked.Count) file(s)."
     $status | ForEach-Object { Write-Host "  $_" }
-    if (-not $status) { throw 'No worktree changes to publish.' }
 
     $changedPaths = @($status | ForEach-Object { ([string]$_).Substring(3) })
     $openSpecChanges = @($changedPaths | ForEach-Object {
@@ -136,17 +135,30 @@ function Publish-GitChanges {
         }
     }
 
+    if (-not $status -and $existingPr) {
+        Write-Host "No worktree changes; existing pull request remains unchanged: $($existingPr.url)"
+        return [PSCustomObject]@{
+            Branch = $publishingBranch
+            CommitSha = (Invoke-CodexGitPublishingCommand -FileName 'git' -Arguments @('rev-parse', 'HEAD') | Select-Object -First 1).Trim()
+            Url = $existingPr.url
+            Title = $existingPr.title
+            Status = (Invoke-CodexGitPublishingCommand -FileName 'git' -Arguments @('status', '--short'))
+        }
+    }
+
     if ($currentBranch -ne $publishingBranch) {
         Invoke-CodexGitPublishingCommand -FileName 'git' -Arguments @('switch', '-c', $publishingBranch) | Out-Null
     }
 
-    Invoke-CodexGitPublishingCommand -FileName 'git' -Arguments @('add', '-A') | Out-Null
-    Invoke-CodexGitPublishingCommand -FileName 'git' -Arguments @('-c', 'core.whitespace=-blank-at-eof', 'diff', '--cached', '--check') | Out-Null
-    $stagedDiff = Invoke-CodexGitPublishingCommand -FileName 'git' -Arguments @('diff', '--cached', '--name-status')
-    $stagedDiff | ForEach-Object { Write-Host $_ }
-    if (-not $stagedDiff) { throw 'Staging produced no changes to commit.' }
+    if ($status) {
+        Invoke-CodexGitPublishingCommand -FileName 'git' -Arguments @('add', '-A') | Out-Null
+        Invoke-CodexGitPublishingCommand -FileName 'git' -Arguments @('-c', 'core.whitespace=-blank-at-eof', 'diff', '--cached', '--check') | Out-Null
+        $stagedDiff = Invoke-CodexGitPublishingCommand -FileName 'git' -Arguments @('diff', '--cached', '--name-status')
+        $stagedDiff | ForEach-Object { Write-Host $_ }
+        if (-not $stagedDiff) { throw 'Staging produced no changes to commit.' }
 
-    Invoke-CodexGitPublishingCommand -FileName 'git' -Arguments @('commit', '-m', $summary.CommitMessage) | Out-Null
+        Invoke-CodexGitPublishingCommand -FileName 'git' -Arguments @('commit', '-m', $summary.CommitMessage) | Out-Null
+    }
     Invoke-CodexGitPublishingCommand -FileName 'git' -Arguments @('push', '-u', 'origin', $publishingBranch) | Out-Null
     $commitSha = (Invoke-CodexGitPublishingCommand -FileName 'git' -Arguments @('rev-parse', 'HEAD') | Select-Object -First 1).Trim()
 

@@ -54,7 +54,7 @@ BeforeAll {
                 if ($script:Scenario -in @('openspec-only', 'openspec-with-committed-code')) { return '?? openspec/changes/add-daily-dash-renewals/proposal.md' }
                 if ($script:Scenario -eq 'mixed-openspec') { return @('?? openspec/changes/add-daily-dash-renewals/proposal.md', ' M Functions/Publish-GitChanges.ps1') }
                 if ($script:Scenario -eq 'multiple-openspec') { return @('?? openspec/changes/add-daily-dash-renewals/proposal.md', '?? openspec/changes/add-other-change/proposal.md') }
-                if ($script:Scenario -ne 'clean') { return @(' M changed.ps1', '?? new.ps1') }
+                if ($script:Scenario -notin @('clean', 'clean-existing-pr')) { return @(' M changed.ps1', '?? new.ps1') }
                 return
             }
             'switch -c *' { return }
@@ -80,7 +80,7 @@ BeforeAll {
         }
 
         $global:LASTEXITCODE = 0
-        if ($script:Scenario -in @('existing-pr', 'mismatched-existing-pr') -and $command -like 'pr list *') {
+        if ($script:Scenario -in @('existing-pr', 'clean-existing-pr', 'mismatched-existing-pr') -and $command -like 'pr list *') {
             return '[{"number":42,"url":"https://github.com/example/data-warehouse/pull/42","title":"Existing PR title"}]'
         }
         if ($command -like 'pr list *') { return '[]' }
@@ -288,6 +288,32 @@ Daily renewal signals are hard to spot.
         @($script:Calls | Where-Object { $_ -like 'gh pr create *' -or $_ -like 'gh pr edit *' -or $_ -like 'git switch *' }).Count | Should -Be 0
     }
 
+    It 'leaves an existing pull request alone when the worktree is clean' {
+        $script:CurrentBranch = 'dw/existing-work'
+        $script:Scenario = 'clean-existing-pr'
+
+        $result = Publish-GitChanges
+
+        $result.Branch | Should -Be 'dw/existing-work'
+        $result.CommitSha | Should -Be '0123456789abcdef'
+        $result.Url | Should -Be 'https://github.com/example/data-warehouse/pull/42'
+        $script:Calls | Should -Contain 'gh pr list --head dw/existing-work --state open --json number,url,title --limit 1'
+        @($script:Calls | Where-Object { $_ -match '^(git (switch|add|commit|push)|gh pr (create|edit))' }).Count | Should -Be 0
+    }
+
+    It 'publishes the current HEAD and creates a pull request when the worktree is clean' {
+        $script:Scenario = 'clean'
+        $script:CurrentBranch = 'dw/new-pr'
+
+        $result = Publish-GitChanges
+
+        $result.Branch | Should -Be 'dw/new-pr'
+        $result.CommitSha | Should -Be '0123456789abcdef'
+        $script:Calls | Should -Contain 'git push -u origin dw/new-pr'
+        @($script:Calls | Where-Object { $_ -like 'git commit *' }).Count | Should -Be 0
+        @($script:Calls | Where-Object { $_ -like 'gh pr create *' }).Count | Should -Be 1
+    }
+
     It 'stops before mutation for a pull request on another branch' {
         $script:Scenario = 'mismatched-existing-pr'
         $script:CurrentBranch = 'dw/current-work'
@@ -301,7 +327,6 @@ Daily renewal signals are hard to spot.
     It 'stops safely for <Scenario>' -TestCases @(
         @{ Scenario = 'origin-failure' }
         @{ Scenario = 'gh-failure' }
-        @{ Scenario = 'clean' }
         @{ Scenario = 'empty-staged' }
         @{ Scenario = 'diff-check-failure' }
         @{ Scenario = 'codex-failure' }
