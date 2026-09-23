@@ -22,26 +22,8 @@ BeforeAll {
                 return $script:ChangeList | ConvertTo-Json -Depth 4
             }
             default {
-                if ($command -notmatch '^status --change (.+)$') { throw "Unexpected openspec call: $command" }
                 throw "Unexpected openspec call: $command"
             }
-        }
-    }
-
-    function git {
-        param([Parameter(ValueFromRemainingArguments)][string[]]$Arguments)
-
-        $command = $Arguments -join ' '
-        $script:Calls += "git $command"
-        $global:LASTEXITCODE = 0
-        switch ($command) {
-            'status --porcelain=v1 --untracked-files=all' { return $script:GitStatus }
-            'branch --show-current' { return $script:CurrentBranch }
-            'symbolic-ref --quiet --short refs/remotes/origin/HEAD' { return 'origin/main' }
-            'merge-base HEAD origin/main' { return 'base-sha' }
-            'diff --name-only base-sha HEAD' { return $script:BranchPaths }
-            'show --format= --name-only HEAD openspec/changes :(exclude)openspec/changes/archive/**' { return $script:HeadPaths }
-            default { throw "Unexpected git call: $command" }
         }
     }
 
@@ -55,18 +37,14 @@ Describe 'Get-OpenSpecStatus' {
     BeforeEach {
         $script:Calls = @()
         $script:Scenario = 'success'
-        $script:GitStatus = @()
-        $script:CurrentBranch = 'ia/unrelated-work'
-        $script:BranchPaths = @()
-        $script:HeadPaths = @()
         $script:PickerItems = @()
         $script:PickerSelection = $null
         $script:ChangeList = @{
             root = @{ path = $TestDrive }
             changes = @(
-                @{ name = 'add-wormhole-routing'; completedTasks = 3; totalTasks = 5; status = 'in-progress' }
-                @{ name = 'improve-replicator-rations'; completedTasks = 4; totalTasks = 4; status = 'complete' }
-                @{ name = 'use-ephemeral-mongo-for-authenticated-e2e'; completedTasks = 2; totalTasks = 6; status = 'in-progress' }
+                @{ name = 'add-wormhole-routing'; completedTasks = 3; totalTasks = 5; status = 'in-progress'; lastModified = '2026-09-21T12:00:00.000Z' }
+                @{ name = 'improve-replicator-rations'; completedTasks = 4; totalTasks = 4; status = 'complete'; lastModified = '2026-09-23T12:00:00.000Z' }
+                @{ name = 'use-ephemeral-mongo-for-authenticated-e2e'; completedTasks = 2; totalTasks = 6; status = 'in-progress'; lastModified = '2026-09-22T12:00:00.000Z' }
             )
         }
         New-Item -ItemType Directory -Force -Path "$TestDrive/openspec/changes/add-wormhole-routing" | Out-Null
@@ -93,7 +71,7 @@ Describe 'Get-OpenSpecStatus' {
         $script:ExportedAliases | Should -Contain 'goss'
     }
 
-    It 'uses an explicit active change without Git inference' {
+    It 'uses an explicit active change' {
         $previousTelemetry = $env:OPENSPEC_TELEMETRY
         $env:OPENSPEC_TELEMETRY = 'restore-me'
         try { $output = @(Get-OpenSpecStatus -Change 'add-wormhole-routing') }
@@ -108,7 +86,7 @@ Describe 'Get-OpenSpecStatus' {
         $output | Should -Contain '- [ ] 2.2 Second Item'
         $output | Should -Not -Contain '## 3. Third Group'
         $output | Should -Contain 'Tasks: 3/5 complete (in-progress)'
-        @($script:Calls | Where-Object { $_ -like 'git *' }).Count | Should -Be 0
+        $script:PickerItems.Count | Should -Be 0
     }
 
     It 'shows whole partial groups and stops after the first fully open group' {
@@ -165,73 +143,30 @@ Describe 'Get-OpenSpecStatus' {
         @($script:Calls | Where-Object { $_ -like 'openspec status *' }).Count | Should -Be 0
     }
 
-    It 'prefers one dirty OpenSpec change over branch evidence' {
-        $script:GitStatus = ' M openspec/changes/add-wormhole-routing/tasks.md'
-        $script:CurrentBranch = 'ia/improve-replicator-rations'
-
-        @(Get-OpenSpecStatus) | Should -Contain 'Change: add-wormhole-routing'
-        @($script:Calls | Where-Object { $_ -eq 'git branch --show-current' }).Count | Should -Be 0
-    }
-
-    It 'uses fzf instead of weaker evidence when multiple dirty changes exist' {
-        $script:GitStatus = @(
-            ' M openspec/changes/add-wormhole-routing/tasks.md',
-            ' M openspec/changes/improve-replicator-rations/design.md'
-        )
-        $script:CurrentBranch = 'ia/add-wormhole-routing'
-        $script:PickerSelection = 'improve-replicator-rations'
-
+    It 'defaults to the change with the latest OpenSpec modification time' {
         @(Get-OpenSpecStatus) | Should -Contain 'Change: improve-replicator-rations'
-        $script:PickerItems | Should -Contain 'add-wormhole-routing'
-        @($script:Calls | Where-Object { $_ -eq 'git branch --show-current' }).Count | Should -Be 0
+        $script:PickerItems.Count | Should -Be 0
     }
 
-    It 'matches the branch suffix exactly' {
-        $script:CurrentBranch = 'ia/add-wormhole-routing'
+    It 'chooses from the active changes when requested' {
+        $script:PickerSelection = 'add-wormhole-routing'
 
-        @(Get-OpenSpecStatus) | Should -Contain 'Change: add-wormhole-routing'
+        @(Get-OpenSpecStatus -Choose) | Should -Contain 'Change: add-wormhole-routing'
+        $script:PickerItems | Should -Be @('improve-replicator-rations', 'use-ephemeral-mongo-for-authenticated-e2e', 'add-wormhole-routing')
     }
 
-    It 'uses a unique OpenSpec change from the branch diff' {
-        $script:BranchPaths = @(
-            'src/routes/wormhole.ts',
-            'openspec/changes/add-wormhole-routing/tasks.md'
-        )
-
-        @(Get-OpenSpecStatus) | Should -Contain 'Change: add-wormhole-routing'
+    It 'fails when the requested picker is cancelled' {
+        { Get-OpenSpecStatus -Choose } | Should -Throw '*No OpenSpec change selected*'
     }
 
-    It 'uses a unique OpenSpec change touched by HEAD' {
-        $script:HeadPaths = 'openspec/changes/improve-replicator-rations/tasks.md'
-
-        @(Get-OpenSpecStatus) | Should -Contain 'Change: improve-replicator-rations'
-    }
-
-    It 'uses a unique conservative branch token match' {
-        $script:CurrentBranch = 'ia/ephemeral-mongo-authenticated-e2e'
-
-        @(Get-OpenSpecStatus) | Should -Contain 'Change: use-ephemeral-mongo-for-authenticated-e2e'
-    }
-
-    It 'does not use branch or commit inference from detached HEAD' {
-        $script:CurrentBranch = $null
-        $script:HeadPaths = 'openspec/changes/add-wormhole-routing/tasks.md'
-        $script:PickerSelection = 'improve-replicator-rations'
-
-        @(Get-OpenSpecStatus) | Should -Contain 'Change: improve-replicator-rations'
-        @($script:Calls | Where-Object { $_ -like 'git symbolic-ref *' -or $_ -like 'git show *' }).Count | Should -Be 0
-    }
-
-    It 'fails when ambiguity is not resolved by the picker' {
-        { Get-OpenSpecStatus } | Should -Throw '*Could not determine the current OpenSpec change*'
-        @($script:Calls | Where-Object { $_ -like 'openspec status *' }).Count | Should -Be 0
-    }
-
-    It 'fails clearly when ambiguity requires unavailable fzf' {
+    It 'fails clearly when the requested picker is unavailable' {
         Mock Get-Command { $null } -ParameterFilter { $Name -eq 'fzf' }
 
-        { Get-OpenSpecStatus } | Should -Throw '*fzf is unavailable*Use -Change*'
-        @($script:Calls | Where-Object { $_ -like 'openspec status *' }).Count | Should -Be 0
+        { Get-OpenSpecStatus -Choose } | Should -Throw '*fzf is unavailable*'
+    }
+
+    It 'rejects combining explicit selection with the picker' {
+        { Get-OpenSpecStatus -Change 'add-wormhole-routing' -Choose } | Should -Throw
     }
 
     It 'surfaces OpenSpec list failures' -TestCases @(
