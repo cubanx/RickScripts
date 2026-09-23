@@ -23,11 +23,7 @@ BeforeAll {
             }
             default {
                 if ($command -notmatch '^status --change (.+)$') { throw "Unexpected openspec call: $command" }
-                if ($script:Scenario -eq 'status-failure') {
-                    $global:LASTEXITCODE = 1
-                    return 'OpenSpec status failed'
-                }
-                return "Change: $($Matches[1])"
+                throw "Unexpected openspec call: $command"
             }
         }
     }
@@ -66,12 +62,30 @@ Describe 'Get-OpenSpecStatus' {
         $script:PickerItems = @()
         $script:PickerSelection = $null
         $script:ChangeList = @{
+            root = @{ path = $TestDrive }
             changes = @(
                 @{ name = 'add-wormhole-routing'; completedTasks = 3; totalTasks = 5; status = 'in-progress' }
                 @{ name = 'improve-replicator-rations'; completedTasks = 4; totalTasks = 4; status = 'complete' }
                 @{ name = 'use-ephemeral-mongo-for-authenticated-e2e'; completedTasks = 2; totalTasks = 6; status = 'in-progress' }
             )
         }
+        New-Item -ItemType Directory -Force -Path "$TestDrive/openspec/changes/add-wormhole-routing" | Out-Null
+        Set-Content -Path "$TestDrive/openspec/changes/add-wormhole-routing/tasks.md" -Value @'
+## 1. First Group
+
+- [x] 1.1 First Item
+- [x] 1.2 Second Item
+
+## 2. Second Group
+
+- [ ] 2.1 First Item
+- [ ] 2.2 Second Item
+
+## 3. Third Group
+
+- [ ] 3.1 First Item
+- [ ] 3.2 Second Item
+'@
     }
 
     It 'is exported by the module' {
@@ -89,8 +103,61 @@ Describe 'Get-OpenSpecStatus' {
         }
 
         $output | Should -Contain 'Change: add-wormhole-routing'
+        $output | Should -Contain '## 2. Second Group'
+        $output | Should -Contain '- [ ] 2.1 First Item'
+        $output | Should -Contain '- [ ] 2.2 Second Item'
+        $output | Should -Not -Contain '## 3. Third Group'
         $output | Should -Contain 'Tasks: 3/5 complete (in-progress)'
         @($script:Calls | Where-Object { $_ -like 'git *' }).Count | Should -Be 0
+    }
+
+    It 'shows whole partial groups and stops after the first fully open group' {
+        Set-Content -Path "$TestDrive/openspec/changes/add-wormhole-routing/tasks.md" -Value @'
+## 1. First Group
+- [x] 1.1 First Item
+- [ ] 1.2 Second Item
+## 2. Second Group
+- [x] 2.1 First Item
+- [x] 2.2 Second Item
+## 3. Third Group
+- [ ] 3.1 First Item
+- [ ] 3.2 Second Item
+## 4. Fourth Group
+- [ ] 4.1 Future Item
+'@
+
+        $output = @(Get-OpenSpecStatus -Change 'add-wormhole-routing')
+
+        $output | Should -Contain '## 1. First Group'
+        $output | Should -Contain '- [x] 1.1 First Item'
+        $output | Should -Contain '- [ ] 1.2 Second Item'
+        $output | Should -Not -Contain '## 2. Second Group'
+        $output | Should -Contain '## 3. Third Group'
+        $output | Should -Contain '- [ ] 3.1 First Item'
+        $output | Should -Not -Contain '## 4. Fourth Group'
+    }
+
+    It 'shows every partial group before the first fully open group' {
+        Set-Content -Path "$TestDrive/openspec/changes/add-wormhole-routing/tasks.md" -Value @'
+## 1. First Group
+- [x] 1.1 Done
+- [ ] 1.2 Open
+## 2. Second Group
+- [ ] 2.1 Open
+- [x] 2.2 Done
+## 3. Third Group
+- [ ] 3.1 Open
+## 4. Fourth Group
+- [ ] 4.1 Future
+'@
+
+        $output = @(Get-OpenSpecStatus -Change 'add-wormhole-routing')
+
+        $output | Should -Contain '## 1. First Group'
+        $output | Should -Contain '## 2. Second Group'
+        $output | Should -Contain '- [x] 2.2 Done'
+        $output | Should -Contain '## 3. Third Group'
+        $output | Should -Not -Contain '## 4. Fourth Group'
     }
 
     It 'rejects an explicit unknown change' {
@@ -167,10 +234,9 @@ Describe 'Get-OpenSpecStatus' {
         @($script:Calls | Where-Object { $_ -like 'openspec status *' }).Count | Should -Be 0
     }
 
-    It 'surfaces OpenSpec list and status failures' -TestCases @(
+    It 'surfaces OpenSpec list failures' -TestCases @(
         @{ Scenario = 'list-failure'; Expected = '*Could not list OpenSpec changes*' }
         @{ Scenario = 'invalid-list'; Expected = '*Could not parse OpenSpec change list*' }
-        @{ Scenario = 'status-failure'; Expected = '*Could not report OpenSpec status*'; Change = 'add-wormhole-routing' }
     ) {
         param($Scenario, $Expected, $Change)
         $script:Scenario = $Scenario

@@ -6,12 +6,13 @@ function Get-OpenSpecStatus {
     .DESCRIPTION
     Uses an explicit change name or conservatively infers one from dirty OpenSpec paths,
     the current branch, branch changes, the current commit, or branch-name similarity.
-    Ambiguous changes are selected with fzf. Artifact status comes from OpenSpec itself.
+    Ambiguous changes are selected with fzf. Shows unfinished task groups through
+    the first group where every task is open.
 
     .EXAMPLE
     Get-OpenSpecStatus
 
-    Infers the current change and reports its artifact and task progress.
+    Infers the current change and reports its current task groups.
 
     .EXAMPLE
     Get-OpenSpecStatus -Change add-wormhole-routing
@@ -137,11 +138,19 @@ function Get-OpenSpecStatus {
         }
     }
 
-    $statusOutput = @(& openspec status --change $selected.name)
-    if ($LASTEXITCODE -ne 0) {
-        throw "Could not report OpenSpec status for '$($selected.name)': $(($statusOutput | Out-String).Trim())"
+    "Change: $($selected.name)"
+    $tasksPath = Join-Path $changeList.root.path "openspec/changes/$($selected.name)/tasks.md"
+    if (Test-Path -LiteralPath $tasksPath) {
+        $tasks = Get-Content -LiteralPath $tasksPath -Raw -ErrorAction Stop
+        foreach ($group in [regex]::Split($tasks, '(?m)(?=^## )')) {
+            if (-not $group.StartsWith('## ')) { continue }
+            $checks = @([regex]::Matches($group, '(?m)^[ \t]*- [ \t]*\[([ xX])\]'))
+            $open = @($checks | Where-Object { $_.Groups[1].Value -eq ' ' }).Count
+            if ($open -eq 0) { continue }
+            ($group.TrimEnd() -split '\r?\n')
+            if ($open -eq $checks.Count) { break }
+        }
     }
-    $statusOutput
     "Tasks: $($selected.completedTasks)/$($selected.totalTasks) complete ($($selected.status))"
     }
     finally {
