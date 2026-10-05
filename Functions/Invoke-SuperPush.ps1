@@ -233,7 +233,7 @@ function Test-SuperPushDocumentationOnly {
 
     $raw = Invoke-GitCommand -Arguments @(
         '-C', $State.Root, 'diff', '--raw', '-z', '--no-abbrev', '--no-ext-diff',
-        '--find-renames=100%', '--find-copies=100%',
+        '--no-renames',
         $State.OldSha, $State.NewSha
     )
     $entries = ($raw.Output -join '').Split([char]0)
@@ -265,7 +265,7 @@ function Test-SuperPushDocumentationOnly {
 
     $numstat = Invoke-GitCommand -Arguments @(
         '-C', $State.Root, 'diff', '--numstat', '-z', '--no-ext-diff',
-        '--find-renames=100%', '--find-copies=100%',
+        '--no-renames',
         $State.OldSha, $State.NewSha
     )
     $numstatEntries = ($numstat.Output -join '').Split([char]0)

@@ -130,15 +130,23 @@ Describe 'Invoke-SuperPush safety boundary' {
     It 'reads NUL-delimited changed metadata from Git' {
         $root = Join-Path ([System.IO.Path]::GetTempPath()) "rickscripts-docs-only-$([guid]::NewGuid())"
         try {
-            New-Item -ItemType Directory -Path (Join-Path $root 'docs') -Force | Out-Null
+            New-Item -ItemType Directory -Path (Join-Path $root 'openspec/changes/defiant') -Force | Out-Null
             & $script:GitExecutable -C $root init --quiet
-            [IO.File]::WriteAllText((Join-Path $root 'docs/defiant.md'), "warp one`n")
-            & $script:GitExecutable -C $root add docs/defiant.md
+            [IO.File]::WriteAllText((Join-Path $root 'openspec/changes/defiant/tasks.md'), "warp one`n")
+            & $script:GitExecutable -C $root add openspec/changes/defiant/tasks.md
             & $script:GitExecutable -C $root -c user.name='Benjamin Sisko' -c user.email='sisko@example.test' commit --quiet -m 'Add Defiant docs'
             $old = & $script:GitExecutable -C $root rev-parse HEAD
-            [IO.File]::AppendAllText((Join-Path $root 'docs/defiant.md'), "warp nine`n")
-            & $script:GitExecutable -C $root add docs/defiant.md
+            [IO.File]::AppendAllText((Join-Path $root 'openspec/changes/defiant/tasks.md'), "warp nine`n")
+            & $script:GitExecutable -C $root add openspec/changes/defiant/tasks.md
             & $script:GitExecutable -C $root -c user.name='Benjamin Sisko' -c user.email='sisko@example.test' commit --quiet -m 'Expand Defiant docs'
+            $new = & $script:GitExecutable -C $root rev-parse HEAD
+
+            Test-SuperPushDocumentationOnly ([pscustomobject]@{ Root = $root; OldSha = $old; NewSha = $new }) | Should -BeTrue
+
+            $old = $new
+            New-Item -ItemType Directory -Path (Join-Path $root 'openspec/changes/archive/defiant') -Force | Out-Null
+            & $script:GitExecutable -C $root mv openspec/changes/defiant/tasks.md openspec/changes/archive/defiant/tasks.md
+            & $script:GitExecutable -C $root -c user.name='Benjamin Sisko' -c user.email='sisko@example.test' commit --quiet -m 'Archive Defiant docs'
             $new = & $script:GitExecutable -C $root rev-parse HEAD
 
             Test-SuperPushDocumentationOnly ([pscustomobject]@{ Root = $root; OldSha = $old; NewSha = $new }) | Should -BeTrue
