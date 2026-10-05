@@ -9,6 +9,11 @@ Describe 'Invoke-SuperPush safety boundary' {
         . $functionPath
         $script:GitExecutable = '/usr/bin/git'
 
+        function Invoke-TestOnePassword {
+            param([Parameter(ValueFromRemainingArguments)][string[]]$Arguments)
+            throw 'The fake 1Password command must be mocked.'
+        }
+
         function New-TestSuperPushState {
             [pscustomobject]@{
                 Repository = 'Crisp-Inc/yoda'
@@ -385,6 +390,94 @@ Describe 'Invoke-SuperPush safety boundary' {
         }
 
         { Update-SuperPushTrackingRef $state } | Should -Throw '*local origin/main*'
+    }
+
+    It 'identifies a failed <Operation> lookup without exposing command output' -ForEach @(
+        @{ Operation = 'item' },
+        @{ Operation = 'vault' }
+    ) {
+        $previousPath = $script:OnePasswordPath
+        $script:OnePasswordPath = 'Invoke-TestOnePassword'
+        $script:FailedLookup = $Operation
+        Mock Invoke-TestOnePassword {
+            param([string[]]$Arguments)
+            if ($Arguments[0] -eq $script:FailedLookup) {
+                $global:LASTEXITCODE = 7
+                return 'defiant-private-key sentinel: raw output must stay private'
+            }
+            $global:LASTEXITCODE = 0
+            '{"vault":{"id":"vault-1701"}}'
+        }
+        try {
+            { Get-SuperPushAppCredential } | Should -Throw -ExpectedMessage "1Password $Operation lookup failed (exit code 7; category=command-failed)."
+            Should -Invoke Invoke-TestOnePassword -Times 1 -Exactly -ParameterFilter {
+                $Arguments[0] -eq $script:FailedLookup
+            }
+            if ($Operation -eq 'item') {
+                Should -Invoke Invoke-TestOnePassword -Times 0 -Exactly -ParameterFilter { $Arguments[0] -eq 'vault' }
+            }
+        }
+        finally {
+            $script:OnePasswordPath = $previousPath
+        }
+    }
+
+    It 'sanitizes malformed JSON and command invocation exceptions' -ForEach @(
+        @{ Failure = 'json'; Expected = '1Password item lookup failed (exit code 0; category=invalid-json).' },
+        @{ Failure = 'launch'; Expected = '1Password item lookup failed (exit code unknown; category=invocation-failed).' }
+    ) {
+        $previousPath = $script:OnePasswordPath
+        $script:OnePasswordPath = 'Invoke-TestOnePassword'
+        $script:LookupFailure = $Failure
+        Mock Invoke-TestOnePassword {
+            if ($script:LookupFailure -eq 'launch') { throw 'defiant-private-key sentinel' }
+            $global:LASTEXITCODE = 0
+            'defiant-private-key sentinel'
+        }
+        try {
+            { Invoke-OnePasswordJson -Arguments @('item', 'get', 'fictional-item') -Operation item } |
+                Should -Throw -ExpectedMessage $Expected
+        }
+        finally {
+            $script:OnePasswordPath = $previousPath
+        }
+    }
+
+    It 'suppresses native stdout and stderr even when native errors are enabled' {
+        $previousPath = $script:OnePasswordPath
+        $fakePath = Join-Path $TestDrive 'fake-op'
+        [IO.File]::WriteAllText($fakePath, "#!/bin/sh`nprintf '%s\n' 'defiant-stdout sentinel'`nprintf '%s\n' 'defiant-stderr sentinel' >&2`nexit 7`n")
+        & /bin/chmod +x $fakePath
+        $script:OnePasswordPath = $fakePath
+        $PSNativeCommandUseErrorActionPreference = $true
+        try {
+            $observed = @(& {
+                try { Invoke-OnePasswordJson -Arguments @('item', 'get', 'fictional-item') -Operation item }
+                catch { $_.Exception.Message }
+            } *>&1)
+            $observed.Count | Should -Be 1
+            $observed[0] | Should -Be '1Password item lookup failed (exit code 7; category=command-failed).'
+            $PSNativeCommandUseErrorActionPreference | Should -BeTrue
+        }
+        finally {
+            $script:OnePasswordPath = $previousPath
+        }
+    }
+
+    It 'returns valid JSON from the fake command' {
+        $previousPath = $script:OnePasswordPath
+        $script:OnePasswordPath = 'Invoke-TestOnePassword'
+        Mock Invoke-TestOnePassword {
+            $global:LASTEXITCODE = 0
+            '{"name":"Human Security"}'
+        }
+        try {
+            (Invoke-OnePasswordJson -Arguments @('vault', 'get', 'vault-1701') -Operation vault).name |
+                Should -Be 'Human Security'
+        }
+        finally {
+            $script:OnePasswordPath = $previousPath
+        }
     }
 
     It 'reads credential metadata only through faked fixed human-account calls' {

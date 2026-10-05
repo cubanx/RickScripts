@@ -292,17 +292,28 @@ function Assert-UnchangedState {
 }
 
 function Invoke-OnePasswordJson {
-    param([Parameter(Mandatory)][string[]]$Arguments)
+    param(
+        [Parameter(Mandatory)][string[]]$Arguments,
+        [Parameter(Mandatory)][ValidateSet('item', 'vault')][string]$Operation
+    )
 
-    $output = @(& $script:OnePasswordPath @Arguments 2>&1 | ForEach-Object { $_.ToString() })
-    if ($LASTEXITCODE -ne 0) {
-        throw "1Password command failed while resolving $script:SuperPushItem."
+    # Capture nonzero native exits rather than letting PowerShell emit raw errors.
+    $PSNativeCommandUseErrorActionPreference = $false
+    try {
+        $output = @(& $script:OnePasswordPath @Arguments 2>&1 | ForEach-Object { $_.ToString() })
+        $exitCode = $LASTEXITCODE
+    }
+    catch {
+        throw "1Password $Operation lookup failed (exit code unknown; category=invocation-failed)."
+    }
+    if ($exitCode -ne 0) {
+        throw "1Password $Operation lookup failed (exit code $exitCode; category=command-failed)."
     }
     try {
         $output -join "`n" | Microsoft.PowerShell.Utility\ConvertFrom-Json -Depth 20
     }
     catch {
-        throw "1Password returned malformed metadata for $script:SuperPushItem."
+        throw "1Password $Operation lookup failed (exit code $exitCode; category=invalid-json)."
     }
 }
 
@@ -312,11 +323,11 @@ function Get-SuperPushAppCredential {
     $env:OP_ACCOUNT = $script:SuperPushAccount
     $env:OP_BIOMETRIC_UNLOCK_ENABLED = 'true'
 
-    $item = Invoke-OnePasswordJson @(
+    $item = Invoke-OnePasswordJson -Operation item -Arguments @(
         'item', 'get', $script:SuperPushItem,
         '--account', $script:SuperPushAccount, '--format', 'json', '--reveal'
     )
-    $vault = Invoke-OnePasswordJson @(
+    $vault = Invoke-OnePasswordJson -Operation vault -Arguments @(
         'vault', 'get', $item.vault.id,
         '--account', $script:SuperPushAccount, '--format', 'json'
     )
