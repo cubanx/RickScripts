@@ -4,8 +4,9 @@ Set-StrictMode -Version Latest
 $ErrorActionPreference = 'Stop'
 
 $script:SuperPushRef = 'refs/heads/main'
-$script:SuperPushAccount = '2KC5FVMXXJGKDG7LGHWF2OJ2N4'
+$script:SuperPushVault = 'bcxp54juyo54olkp6ysoe4lzky'
 $script:SuperPushItem = 'Super Push GitHub App'
+$script:SuperPushItemId = 'elv65z73smxy4uq5jii57djpge'
 $script:GitHubApiVersion = '2026-03-10'
 $script:GitPath = '/usr/bin/git'
 $script:OnePasswordPath = '/opt/homebrew/bin/op'
@@ -307,35 +308,40 @@ function Invoke-OnePasswordJson {
 }
 
 function Get-SuperPushAppCredential {
-    $env:OP_SERVICE_ACCOUNT_TOKEN = $null
-    $env:OP_SESSION = $null
-    $env:OP_ACCOUNT = $script:SuperPushAccount
-    $env:OP_BIOMETRIC_UNLOCK_ENABLED = 'true'
-
-    $item = Invoke-OnePasswordJson @(
-        'item', 'get', $script:SuperPushItem,
-        '--account', $script:SuperPushAccount, '--format', 'json', '--reveal'
-    )
-    $vault = Invoke-OnePasswordJson @(
-        'vault', 'get', $item.vault.id,
-        '--account', $script:SuperPushAccount, '--format', 'json'
-    )
-    if ($vault.name -ieq 'Automation') {
-        throw 'The Super Push App credential must not be stored in the Automation vault.'
+    if ([string]::IsNullOrWhiteSpace($env:OP_SERVICE_ACCOUNT_TOKEN)) {
+        throw 'Super Push requires Local Automation through OP_SERVICE_ACCOUNT_TOKEN; desktop authentication is not supported.'
     }
 
-    $clientFields = @($item.fields | Where-Object { $_.label -ceq 'client-id' })
-    $keyFields = @($item.fields | Where-Object { $_.label -ceq 'private-key' })
-    if ($clientFields.Count -ne 1 -or [string]::IsNullOrWhiteSpace($clientFields[0].value)) {
-        throw "The $script:SuperPushItem item requires one client-id field."
-    }
-    if ($keyFields.Count -ne 1 -or [string]::IsNullOrWhiteSpace($keyFields[0].value)) {
-        throw "The $script:SuperPushItem item requires one private-key field."
-    }
+    $previousBiometric = $env:OP_BIOMETRIC_UNLOCK_ENABLED
+    try {
+        $env:OP_BIOMETRIC_UNLOCK_ENABLED = 'false'
+        $item = Invoke-OnePasswordJson @(
+            'item', 'get', $script:SuperPushItemId,
+            '--vault', $script:SuperPushVault, '--format', 'json', '--reveal'
+        )
+        if ($item.id -cne $script:SuperPushItemId) {
+            throw '1Password did not return the canonical item for Super Push.'
+        }
+        if ($item.vault.id -cne $script:SuperPushVault) {
+            throw 'The Super Push App credential must be stored in the fixed Automation vault.'
+        }
 
-    [pscustomobject]@{
-        ClientId = $clientFields[0].value
-        PrivateKey = $keyFields[0].value
+        $clientFields = @($item.fields | Where-Object { $_.label -ceq 'client-id' })
+        $keyFields = @($item.fields | Where-Object { $_.label -ceq 'private-key' })
+        if ($clientFields.Count -ne 1 -or [string]::IsNullOrWhiteSpace($clientFields[0].value)) {
+            throw "The $script:SuperPushItem item requires one client-id field."
+        }
+        if ($keyFields.Count -ne 1 -or [string]::IsNullOrWhiteSpace($keyFields[0].value)) {
+            throw "The $script:SuperPushItem item requires one private-key field."
+        }
+
+        [pscustomobject]@{
+            ClientId = $clientFields[0].value
+            PrivateKey = $keyFields[0].value
+        }
+    }
+    finally {
+        $env:OP_BIOMETRIC_UNLOCK_ENABLED = $previousBiometric
     }
 }
 
@@ -593,7 +599,9 @@ function Invoke-SuperPush {
 
     .DESCRIPTION
     Uses the dedicated selected-repository GitHub App after immutable preflight evidence
-    and exact interactive confirmation. The cmdlet accepts no custom parameters.
+    and exact interactive confirmation. Reads its App credential from the fixed
+    Automation vault using OP_SERVICE_ACCOUNT_TOKEN, with no desktop 1Password
+    fallback. The cmdlet accepts no custom parameters.
 
     .EXAMPLE
     Invoke-SuperPush

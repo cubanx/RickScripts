@@ -387,31 +387,81 @@ Describe 'Invoke-SuperPush safety boundary' {
         { Update-SuperPushTrackingRef $state } | Should -Throw '*local origin/main*'
     }
 
-    It 'reads credential metadata only through faked fixed human-account calls' {
-        $script:OnePasswordCalls = @()
-        Mock Invoke-OnePasswordJson {
-            param([string[]]$Arguments)
-            $script:OnePasswordCalls += ,$Arguments
-            if ($Arguments[0] -eq 'item') {
-                return [pscustomobject]@{
-                    vault = [pscustomobject]@{ id = 'vault-1701' }
-                    fields = @(
-                        [pscustomobject]@{ label = 'client-id'; value = 'Iv1.defiant' },
-                        [pscustomobject]@{ label = 'private-key'; value = 'fake-private-key' }
-                    )
+    Context 'Local Automation credentials' {
+        BeforeEach {
+            $script:PreviousAutomationToken = $env:OP_SERVICE_ACCOUNT_TOKEN
+            $script:PreviousBiometric = $env:OP_BIOMETRIC_UNLOCK_ENABLED
+            $env:OP_SERVICE_ACCOUNT_TOKEN = 'fictional-defiant-service-account'
+            $env:OP_BIOMETRIC_UNLOCK_ENABLED = 'true'
+            $script:OnePasswordCalls = @()
+            $script:CredentialId = 'elv65z73smxy4uq5jii57djpge'
+            $script:CredentialVault = 'bcxp54juyo54olkp6ysoe4lzky'
+            $script:CredentialFields = @(
+                [pscustomobject]@{ label = 'client-id'; value = 'Iv1.defiant' },
+                [pscustomobject]@{ label = 'private-key'; value = 'fictional-defiant-key' }
+            )
+            Mock Invoke-OnePasswordJson {
+                param([string[]]$Arguments)
+                $env:OP_SERVICE_ACCOUNT_TOKEN | Should -Be 'fictional-defiant-service-account'
+                $env:OP_BIOMETRIC_UNLOCK_ENABLED | Should -Be 'false'
+                $script:OnePasswordCalls += ,$Arguments
+                [pscustomobject]@{
+                    id = $script:CredentialId
+                    vault = [pscustomobject]@{ id = $script:CredentialVault }
+                    fields = $script:CredentialFields
                 }
             }
-            [pscustomobject]@{ name = 'Human Security' }
         }
 
-        $credential = Get-SuperPushAppCredential
+        AfterEach {
+            $env:OP_SERVICE_ACCOUNT_TOKEN = $script:PreviousAutomationToken
+            $env:OP_BIOMETRIC_UNLOCK_ENABLED = $script:PreviousBiometric
+        }
 
-        $credential.ClientId | Should -Be 'Iv1.defiant'
-        $credential.PrivateKey | Should -Be 'fake-private-key'
-        $calls = $script:OnePasswordCalls | ForEach-Object { $_ -join ' ' }
-        $calls.Count | Should -Be 2
-        $calls[0] | Should -Match 'item get Super Push GitHub App --account 2KC5FVMXXJGKDG7LGHWF2OJ2N4'
-        $calls[1] | Should -Match 'vault get vault-1701 --account 2KC5FVMXXJGKDG7LGHWF2OJ2N4'
+        It 'uses only the fixed Automation vault without desktop authentication' {
+            $credential = Get-SuperPushAppCredential
+            $credential.ClientId | Should -Be 'Iv1.defiant'
+            $credential.PrivateKey | Should -Be 'fictional-defiant-key'
+            $script:OnePasswordCalls.Count | Should -Be 1
+            $script:OnePasswordCalls[0] | Should -Be @(
+                'item', 'get', 'elv65z73smxy4uq5jii57djpge', '--vault', 'bcxp54juyo54olkp6ysoe4lzky', '--format', 'json', '--reveal'
+            )
+            $env:OP_SERVICE_ACCOUNT_TOKEN | Should -Be 'fictional-defiant-service-account'
+            $env:OP_BIOMETRIC_UNLOCK_ENABLED | Should -Be 'true'
+        }
+
+        It 'fails before any CLI call when the service-account token is missing' {
+            $env:OP_SERVICE_ACCOUNT_TOKEN = $null
+            { Get-SuperPushAppCredential } | Should -Throw '*OP_SERVICE_ACCOUNT_TOKEN*'
+            Should -Invoke Invoke-OnePasswordJson -Times 0 -Exactly
+        }
+
+        It 'rejects a different item without falling back to title lookup' {
+            $script:CredentialId = 'fictional-defiant-other-item'
+            { Get-SuperPushAppCredential } | Should -Throw '*canonical item*'
+            Should -Invoke Invoke-OnePasswordJson -Times 1 -Exactly
+            $env:OP_BIOMETRIC_UNLOCK_ENABLED | Should -Be 'true'
+        }
+
+        It 'rejects a credential returned from a different vault' {
+            $script:CredentialVault = 'fictional-human-vault'
+            { Get-SuperPushAppCredential } | Should -Throw '*Automation vault*'
+        }
+
+        It 'rejects missing and duplicate credential fields' {
+            $script:CredentialFields = @([pscustomobject]@{ label = 'client-id'; value = 'Iv1.defiant' })
+            { Get-SuperPushAppCredential } | Should -Throw '*private-key field*'
+            $script:CredentialFields += [pscustomobject]@{ label = 'client-id'; value = 'Iv1.bajor' }
+            { Get-SuperPushAppCredential } | Should -Throw '*client-id field*'
+        }
+
+        It 'restores desktop settings on a failed service-account read without retrying' {
+            Mock Invoke-OnePasswordJson { throw 'Sanitized service-account failure.' }
+            { Get-SuperPushAppCredential } | Should -Throw '*Sanitized service-account failure*'
+            Should -Invoke Invoke-OnePasswordJson -Times 1 -Exactly
+            $env:OP_BIOMETRIC_UNLOCK_ENABLED | Should -Be 'true'
+            $env:OP_SERVICE_ACCOUNT_TOKEN | Should -Be 'fictional-defiant-service-account'
+        }
     }
 
     It 'performs three state reads, one push, and one revocation' {
