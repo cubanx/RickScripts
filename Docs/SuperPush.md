@@ -28,6 +28,15 @@ can read the long-lived App key and mint GitHub installation tokens within the
 App's permissions; cmdlet confirmations do not constrain independent use of
 the key. No plaintext local projection is introduced.
 
+## Host credential prompt controls
+
+Preflight accepts `GIT_CONFIG_COUNT` only when it describes zero to two unique
+entries disabling `credential.interactive` (`false`, `0`, or `never`) or
+`credential.guiPrompt` (`false` or `0`). Missing pairs, duplicate or unknown keys,
+extra indexed variables, and enabled/invalid values are rejected without
+printing their values. Other ambient Git overrides remain forbidden. The push
+still replaces ambient indexed configuration with its own isolated settings.
+
 The fixed Crisp main target, selected-repository scope, fast-forward checks,
 existing push confirmation rules, hook isolation, and short-lived token
 revocation remain unchanged. Agent publication still requires its separate
