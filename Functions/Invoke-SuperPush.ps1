@@ -34,7 +34,7 @@ function Assert-SafeGitEnvironment {
         'GIT_OBJECT_DIRECTORY', 'GIT_ALTERNATE_OBJECT_DIRECTORIES',
         'GIT_REPLACE_REF_BASE', 'GIT_SHALLOW_FILE', 'GIT_CEILING_DIRECTORIES',
         'GIT_DISCOVERY_ACROSS_FILESYSTEM', 'GIT_CONFIG', 'GIT_CONFIG_SYSTEM',
-        'GIT_CONFIG_GLOBAL', 'GIT_CONFIG_NOSYSTEM', 'GIT_CONFIG_COUNT',
+        'GIT_CONFIG_GLOBAL', 'GIT_CONFIG_NOSYSTEM',
         'GIT_CONFIG_PARAMETERS', 'GIT_EXEC_PATH', 'GIT_SSH', 'GIT_SSH_COMMAND',
         'GIT_PROXY_COMMAND'
     )
@@ -44,8 +44,35 @@ function Assert-SafeGitEnvironment {
         }
     }
 
+    # Hosts may disable credential prompts through Git's indexed environment
+    # config. Accept only these two unique controls, never arbitrary overrides.
+    $allowedNames = @()
+    if (Test-Path Env:GIT_CONFIG_COUNT) {
+        if ($env:GIT_CONFIG_COUNT -cnotmatch '^[012]$') {
+            throw 'Super Push rejects ambient Git override: GIT_CONFIG_COUNT.'
+        }
+        $seenKeys = @()
+        for ($index = 0; $index -lt [int]$env:GIT_CONFIG_COUNT; $index++) {
+            $keyName = "GIT_CONFIG_KEY_$index"
+            $valueName = "GIT_CONFIG_VALUE_$index"
+            $key = [Environment]::GetEnvironmentVariable($keyName)
+            $value = [Environment]::GetEnvironmentVariable($valueName)
+            if ($key -notin @('credential.interactive', 'credential.guiPrompt') -or $key -in $seenKeys) {
+                throw "Super Push rejects ambient Git override: $keyName."
+            }
+            $disabledValues = @('false', '0')
+            if ($key -ieq 'credential.interactive') { $disabledValues += 'never' }
+            if ($value -notin $disabledValues) {
+                throw "Super Push rejects ambient Git override: $valueName."
+            }
+            $seenKeys += $key
+            $allowedNames += $keyName, $valueName
+        }
+    }
+
     $generatedConfig = Get-ChildItem Env: | Where-Object {
-        $_.Name -like 'GIT_CONFIG_KEY_*' -or $_.Name -like 'GIT_CONFIG_VALUE_*'
+        ($_.Name -like 'GIT_CONFIG_KEY_*' -or $_.Name -like 'GIT_CONFIG_VALUE_*') -and
+        $_.Name -cnotin $allowedNames
     } | Select-Object -First 1
     if ($generatedConfig) {
         throw "Super Push rejects ambient Git override: $($generatedConfig.Name)."

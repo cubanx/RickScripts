@@ -184,6 +184,88 @@ Describe 'Invoke-SuperPush safety boundary' {
         }
     }
 
+    Context 'ambient credential prompt controls' {
+        BeforeEach {
+            $script:PreviousGitConfig = @{}
+            Get-ChildItem Env: | Where-Object {
+                $_.Name -eq 'GIT_CONFIG_COUNT' -or $_.Name -like 'GIT_CONFIG_KEY_*' -or $_.Name -like 'GIT_CONFIG_VALUE_*'
+            } | ForEach-Object {
+                $script:PreviousGitConfig[$_.Name] = $_.Value
+                Remove-Item -LiteralPath "Env:$($_.Name)"
+            }
+            $env:GIT_CONFIG_COUNT = '2'
+            $env:GIT_CONFIG_KEY_0 = 'credential.interactive'
+            $env:GIT_CONFIG_VALUE_0 = 'never'
+            $env:GIT_CONFIG_KEY_1 = 'credential.guiPrompt'
+            $env:GIT_CONFIG_VALUE_1 = 'false'
+        }
+
+        AfterEach {
+            Get-ChildItem Env: | Where-Object {
+                $_.Name -eq 'GIT_CONFIG_COUNT' -or $_.Name -like 'GIT_CONFIG_KEY_*' -or $_.Name -like 'GIT_CONFIG_VALUE_*'
+            } | ForEach-Object { Remove-Item -LiteralPath "Env:$($_.Name)" }
+            foreach ($name in $script:PreviousGitConfig.Keys) {
+                [Environment]::SetEnvironmentVariable($name, $script:PreviousGitConfig[$name])
+            }
+        }
+
+        It 'accepts only disabled credential prompt settings without modifying them' {
+            { Assert-SafeGitEnvironment } | Should -Not -Throw
+            $env:GIT_CONFIG_VALUE_0 = 'false'
+            $env:GIT_CONFIG_VALUE_1 = '0'
+            { Assert-SafeGitEnvironment } | Should -Not -Throw
+            $env:GIT_CONFIG_COUNT | Should -Be '2'
+            $env:GIT_CONFIG_KEY_0 | Should -Be 'credential.interactive'
+            $env:GIT_CONFIG_VALUE_1 | Should -Be '0'
+        }
+
+        It 'rejects unknown and token-sensitive keys' {
+            foreach ($key in 'http.extraHeader', 'credential.helper', 'url.https://bajor.example.insteadOf', 'core.hooksPath') {
+                $env:GIT_CONFIG_KEY_0 = $key
+                { Assert-SafeGitEnvironment } | Should -Throw '*ambient Git override*'
+            }
+        }
+
+        It 'rejects enabled or invalid values without printing them' {
+            foreach ($value in 'true', '1', 'fictional-defiant-secret') {
+                $env:GIT_CONFIG_VALUE_0 = $value
+                { Assert-SafeGitEnvironment } | Should -Throw '*GIT_CONFIG_VALUE_0*'
+            }
+            $env:GIT_CONFIG_VALUE_0 = 'never'
+            $env:GIT_CONFIG_VALUE_1 = 'never'
+            { Assert-SafeGitEnvironment } | Should -Throw '*GIT_CONFIG_VALUE_1*'
+        }
+
+        It 'rejects malformed counts, duplicate keys, missing pairs, and extra variables' {
+            foreach ($count in '-1', '01', '3', 'defiant') {
+                $env:GIT_CONFIG_COUNT = $count
+                { Assert-SafeGitEnvironment } | Should -Throw '*GIT_CONFIG_COUNT*'
+            }
+            $env:GIT_CONFIG_COUNT = '2'
+            $env:GIT_CONFIG_KEY_1 = 'credential.interactive'
+            { Assert-SafeGitEnvironment } | Should -Throw '*GIT_CONFIG_KEY_1*'
+            $env:GIT_CONFIG_KEY_1 = 'credential.guiPrompt'
+            Remove-Item Env:GIT_CONFIG_VALUE_1
+            { Assert-SafeGitEnvironment } | Should -Throw '*GIT_CONFIG_VALUE_1*'
+            $env:GIT_CONFIG_VALUE_1 = 'false'
+            $env:GIT_CONFIG_KEY_2 = 'credential.helper'
+            { Assert-SafeGitEnvironment } | Should -Throw '*GIT_CONFIG_KEY_2*'
+            Remove-Item Env:GIT_CONFIG_KEY_2
+            Remove-Item Env:GIT_CONFIG_COUNT
+            { Assert-SafeGitEnvironment } | Should -Throw '*ambient Git override*'
+        }
+
+        It 'accepts zero entries only when no indexed variables exist' {
+            Get-ChildItem Env: | Where-Object {
+                $_.Name -like 'GIT_CONFIG_KEY_*' -or $_.Name -like 'GIT_CONFIG_VALUE_*'
+            } | ForEach-Object { Remove-Item -LiteralPath "Env:$($_.Name)" }
+            $env:GIT_CONFIG_COUNT = '0'
+            { Assert-SafeGitEnvironment } | Should -Not -Throw
+            $env:GIT_CONFIG_VALUE_0 = 'fictional-defiant-secret'
+            { Assert-SafeGitEnvironment } | Should -Throw '*GIT_CONFIG_VALUE_0*'
+        }
+    }
+
     It 'rejects URL rewrites and token-sensitive HTTP config' {
         $root = Join-Path ([System.IO.Path]::GetTempPath()) "rickscripts-super-push-config-$([guid]::NewGuid())"
         try {
