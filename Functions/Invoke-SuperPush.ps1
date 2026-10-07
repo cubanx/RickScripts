@@ -11,6 +11,137 @@ $script:GitHubApiVersion = '2026-03-10'
 $script:GitPath = '/usr/bin/git'
 $script:OnePasswordPath = '/opt/homebrew/bin/op'
 
+$script:SuperPushDiagnostics = $null
+
+# This is a per-invocation buffer, not a transcript. Never include input,
+# environment dumps, provider payloads, or ErrorRecord/stack serialization.
+function Add-SuperPushSecret {
+    param([AllowNull()][string]$Value)
+
+    if ($null -eq $script:SuperPushDiagnostics -or [string]::IsNullOrEmpty($Value)) { return }
+    $basic = [Convert]::ToBase64String([Text.Encoding]::UTF8.GetBytes("x-access-token:$Value"))
+    $values = @($Value, "x-access-token:$Value", "Bearer $Value", "Authorization: Bearer $Value", "AUTHORIZATION: basic $basic")
+    if ($Value.Contains("`n")) {
+        $values += @($Value -split '\r?\n' | Where-Object { $_ -and $_ -notmatch '^-----' })
+    }
+    foreach ($part in $values) {
+        foreach ($variant in @(
+            $part, [Uri]::EscapeDataString($part),
+            [Convert]::ToBase64String([Text.Encoding]::UTF8.GetBytes($part)),
+            (ConvertTo-Base64Url ([Text.Encoding]::UTF8.GetBytes($part))),
+            (ConvertTo-Json -InputObject $part -Compress).Trim('"')
+        )) {
+            if (-not $script:SuperPushDiagnostics.Secrets.Contains($variant)) {
+                $script:SuperPushDiagnostics.Secrets.Add($variant)
+            }
+        }
+    }
+}
+
+function Protect-SuperPushText {
+    param([AllowNull()][string]$Text)
+
+    if ($null -eq $Text) { return '' }
+    if ($null -ne $script:SuperPushDiagnostics) {
+        foreach ($secret in ($script:SuperPushDiagnostics.Secrets | Sort-Object Length -Descending)) {
+            $Text = $Text.Replace($secret, '[REDACTED]')
+        }
+    }
+    $Text = [regex]::Replace($Text, '(?is)-----BEGIN [^-]*PRIVATE KEY-----.*?-----END [^-]*PRIVATE KEY-----', '[REDACTED PRIVATE KEY]')
+    $Text = [regex]::Replace($Text, '(?im)\b(?:proxy-)?authorization\s*[:=][^\r\n]*', 'Authorization: [REDACTED]')
+    $Text = [regex]::Replace($Text, '(?i)\b(?:basic|bearer)\s+[A-Za-z0-9._~+/=-]+', '[REDACTED AUTH]')
+    $Text = [regex]::Replace($Text, '(?i)(https?://)[^\s/@]+(?::[^\s/@]*)?@', '$1[REDACTED]@')
+    $Text = [regex]::Replace($Text, '(?i)(https?://[^\s?#]+)[?#][^\s]*', '$1[REDACTED QUERY]')
+    $Text = [regex]::Replace($Text, '\b(?:gh[pousr]_[A-Za-z0-9_]+|github_pat_[A-Za-z0-9_]+|eyJ[A-Za-z0-9_-]+\.[A-Za-z0-9_-]+\.[A-Za-z0-9_-]+)\b', '[REDACTED TOKEN]')
+    # Do not permit terminal escape/control sequences to forge evidence.
+    [regex]::Replace($Text, '[\x01-\x08\x0B\x0C\x0E-\x1F\x7F]', '?')
+}
+
+function Add-SuperPushDiagnostic {
+    param([string]$Text)
+
+    if ($null -ne $script:SuperPushDiagnostics) {
+        $script:SuperPushDiagnostics.Lines.Add((Protect-SuperPushText $Text))
+    }
+}
+
+function Assert-SuperPushDiagnosticDirectory {
+    param([string]$Directory)
+
+    $info = [IO.DirectoryInfo]::new($Directory)
+    $private = [IO.UnixFileMode]::UserRead -bor [IO.UnixFileMode]::UserWrite -bor [IO.UnixFileMode]::UserExecute
+    if (-not $info.Exists -or $null -ne $info.LinkTarget -or
+        [IO.File]::GetUnixFileMode($Directory) -ne $private) {
+        throw 'Super Push diagnostic directory is unsafe; no diagnostic file was written.'
+    }
+    # Refuse destinations beneath other users' directories or non-sticky public
+    # writable ancestors. Trusted OS temp symlinks (e.g. /var) may be ancestors,
+    # but the actual diagnostic directory itself must never be a symlink.
+    $uid = & /usr/bin/id -u
+    if ($LASTEXITCODE -ne 0) { throw 'Cannot verify diagnostic ownership.' }
+    $ancestor = $info
+    while ($null -ne $ancestor) {
+        $owner = & /usr/bin/stat -f '%u' $ancestor.FullName 2>$null
+        if ($LASTEXITCODE -ne 0 -or $owner -notin @('0', "$uid")) {
+            throw 'Super Push diagnostic ancestor ownership is unsafe.'
+        }
+        $mode = [IO.File]::GetUnixFileMode($ancestor.FullName)
+        $publicWrite = [IO.UnixFileMode]::GroupWrite -bor [IO.UnixFileMode]::OtherWrite
+        if (($mode -band $publicWrite) -and -not ($mode -band [IO.UnixFileMode]::StickyBit)) {
+            throw 'Super Push diagnostic ancestor permissions are unsafe.'
+        }
+        if ($null -ne $ancestor.LinkTarget) {
+            $ancestor = $ancestor.ResolveLinkTarget($true)
+        } else { $ancestor = $ancestor.Parent }
+    }
+}
+
+function Save-SuperPushDiagnostics {
+    # .NET creates an unpredictable, exclusively created, current-user-owned
+    # directory with mode 0700 (mkdtemp on Unix). No caller-selected destination.
+    # Older runtimes without this API fail closed for retention, not for cleanup.
+    $directory = [IO.Directory]::CreateTempSubdirectory('rickscripts-super-push-').FullName
+    Assert-SuperPushDiagnosticDirectory $directory
+    $path = [IO.Path]::Combine($directory, 'diagnostics.txt')
+    $options = [IO.FileStreamOptions]::new()
+    $options.Mode = [IO.FileMode]::CreateNew
+    $options.Access = [IO.FileAccess]::Write
+    $options.Share = [IO.FileShare]::None
+    $options.UnixCreateMode = [IO.UnixFileMode]::UserRead -bor [IO.UnixFileMode]::UserWrite
+    $stream = [IO.FileStream]::new($path, $options)
+    try {
+        # Re-redact in case a later phase registered a value present in an
+        # earlier Git message. Raw credentials never enter this buffer/file.
+        $text = Protect-SuperPushText ($script:SuperPushDiagnostics.Lines -join "`n")
+        $bytes = [Text.Encoding]::UTF8.GetBytes($text + "`n")
+        $stream.Write($bytes, 0, $bytes.Length)
+    }
+    finally { $stream.Dispose() }
+    $path
+}
+
+function Invoke-SuperPushGitProcess {
+    param([string[]]$Arguments)
+
+    $start = [Diagnostics.ProcessStartInfo]::new($script:GitPath)
+    $start.UseShellExecute = $false
+    $start.RedirectStandardOutput = $true
+    $start.RedirectStandardError = $true
+    $start.WorkingDirectory = (Get-Location).ProviderPath
+    foreach ($argument in $Arguments) { $start.ArgumentList.Add($argument) }
+    $process = [Diagnostics.Process]::new()
+    $process.StartInfo = $start
+    try {
+        $null = $process.Start()
+        # Drain both pipes concurrently; never deadlock on a full stderr pipe.
+        $stdout = $process.StandardOutput.ReadToEndAsync()
+        $stderr = $process.StandardError.ReadToEndAsync()
+        $process.WaitForExit()
+        [pscustomobject]@{ ExitCode = $process.ExitCode; Stdout = $stdout.GetAwaiter().GetResult(); Stderr = $stderr.GetAwaiter().GetResult() }
+    }
+    finally { $process.Dispose() }
+}
+
 function Invoke-GitCommand {
     param(
         [Parameter(Mandatory)]
@@ -19,13 +150,35 @@ function Invoke-GitCommand {
         [switch]$AllowFailure
     )
 
-    $output = @(& $script:GitPath @Arguments 2>&1 | ForEach-Object { $_.ToString() })
-    $exitCode = $LASTEXITCODE
-    if ($exitCode -ne 0 -and -not $AllowFailure) {
-        throw "Git command failed with exit code $exitCode`: git $($Arguments -join ' ')"
+    $command = Protect-SuperPushText ("git " + ($Arguments -join ' '))
+    if ($null -ne $script:SuperPushDiagnostics) {
+        Add-SuperPushDiagnostic "Phase=$($script:SuperPushDiagnostics.Phase) Command=$command"
+    }
+    try { $result = Invoke-SuperPushGitProcess $Arguments }
+    catch {
+        # Native launch exceptions can contain ambient paths/credentials.
+        Add-SuperPushDiagnostic "Git Exit=not-started launch failed: $command"
+        throw (Protect-SuperPushText "Git launch failed: $command. $($_.Exception.Message)")
+    }
+    # Configuration inspection can return unknown credentials; do not retain
+    # its values. The command and exit status still identify the rejected gate.
+    $sensitiveConfig = $Arguments -contains '--get-regexp'
+    $stdout = if ($sensitiveConfig) { '[configuration values omitted]' } else { Protect-SuperPushText $result.Stdout }
+    $stderr = Protect-SuperPushText $result.Stderr
+    Add-SuperPushDiagnostic "Git Exit=$($result.ExitCode) stdout: $stdout"
+    Add-SuperPushDiagnostic "Git Exit=$($result.ExitCode) stderr: $stderr"
+    if ($result.ExitCode -ne 0 -and -not $AllowFailure) {
+        throw "Git command failed with exit code $($result.ExitCode): $command`nstdout: $stdout`nstderr: $stderr"
     }
 
-    [pscustomobject]@{ ExitCode = $exitCode; Output = $output }
+    # Only stdout participates in SHA/path parsing. Return the original bytes
+    # as text to internal callers; diagnostics and visible evidence are redacted.
+    $output = @(
+        if ($result.Stdout.Length -ne 0) {
+            $result.Stdout.TrimEnd("`n").Split("`n") | ForEach-Object { $_.TrimEnd("`r") }
+        }
+    )
+    [pscustomobject]@{ ExitCode = $result.ExitCode; Output = $output; Stderr = $stderr }
 }
 
 function Assert-SafeGitEnvironment {
@@ -202,10 +355,10 @@ function Show-SuperPushEvidence {
 
     Write-Host ''
     Write-Host 'SUPER PUSH PREFLIGHT'
-    Write-Host "Repository:  $($State.Repository)"
-    Write-Host "Target ref:  $($State.TargetRef)"
-    Write-Host "Remote SHA:  $($State.OldSha)"
-    Write-Host "Candidate:   $($State.NewSha)"
+    Write-Host "Repository:  $(Protect-SuperPushText $State.Repository)"
+    Write-Host "Target ref:  $(Protect-SuperPushText $State.TargetRef)"
+    Write-Host "Remote SHA:  $(Protect-SuperPushText $State.OldSha)"
+    Write-Host "Candidate:   $(Protect-SuperPushText $State.NewSha)"
     Write-Host 'Ancestry:    verified fast-forward'
     Write-Host 'Local hooks: disabled for credential isolation'
     Write-Host ''
@@ -213,19 +366,19 @@ function Show-SuperPushEvidence {
     (Invoke-GitCommand -Arguments @(
         '-C', $State.Root, 'log', '--format=%H%x09%s',
         "$($State.OldSha)..$($State.NewSha)"
-    )).Output | ForEach-Object { Write-Host $_ }
+    )).Output | ForEach-Object { Write-Host (Protect-SuperPushText $_) }
     Write-Host ''
     Write-Host 'Diff stat:'
     (Invoke-GitCommand -Arguments @(
         '-C', $State.Root, 'diff', '--stat', '--no-ext-diff',
         $State.OldSha, $State.NewSha
-    )).Output | ForEach-Object { Write-Host $_ }
+    )).Output | ForEach-Object { Write-Host (Protect-SuperPushText $_) }
     Write-Host ''
     Write-Host 'Changed files:'
     (Invoke-GitCommand -Arguments @(
         '-C', $State.Root, 'diff', '--name-status', '--no-ext-diff',
         $State.OldSha, $State.NewSha
-    )).Output | ForEach-Object { Write-Host $_ }
+    )).Output | ForEach-Object { Write-Host (Protect-SuperPushText $_) }
     Write-Host ''
 }
 
@@ -324,12 +477,14 @@ function Invoke-OnePasswordJson {
 
     $output = @(& $script:OnePasswordPath @Arguments 2>&1 | ForEach-Object { $_.ToString() })
     if ($LASTEXITCODE -ne 0) {
+        Add-SuperPushDiagnostic "Provider=1Password Exit=$LASTEXITCODE response text omitted"
         throw "1Password command failed while resolving $script:SuperPushItem."
     }
     try {
         $output -join "`n" | Microsoft.PowerShell.Utility\ConvertFrom-Json -Depth 20
     }
     catch {
+        Add-SuperPushDiagnostic 'Provider=1Password metadata=malformed response text omitted'
         throw "1Password returned malformed metadata for $script:SuperPushItem."
     }
 }
@@ -346,6 +501,9 @@ function Get-SuperPushAppCredential {
             'item', 'get', $script:SuperPushItemId,
             '--vault', $script:SuperPushVault, '--format', 'json', '--reveal'
         )
+        foreach ($field in $item.fields) {
+            if ($field.PSObject.Properties.Name -contains 'value') { Add-SuperPushSecret $field.value }
+        }
         if ($item.id -cne $script:SuperPushItemId) {
             throw '1Password did not return the canonical item for Super Push.'
         }
@@ -447,9 +605,13 @@ function Invoke-GitHubApi {
     }
     catch {
         $status = 'unknown'
-        if ($null -ne $_.Exception.Response -and $null -ne $_.Exception.Response.StatusCode) {
-            $status = [int]$_.Exception.Response.StatusCode
+        $responseProperty = $_.Exception.PSObject.Properties['Response']
+        if ($null -ne $responseProperty -and $null -ne $responseProperty.Value -and
+            $responseProperty.Value.PSObject.Properties.Name -contains 'StatusCode') {
+            $status = [int]$responseProperty.Value.StatusCode
         }
+        $safePath = if ($Path -cmatch '^/(installation/token|repos/[A-Za-z0-9_.-]+/[A-Za-z0-9_.-]+/installation|app/installations/[0-9]+/access_tokens)$') { $Path } else { '[unrecognized endpoint]' }
+        Add-SuperPushDiagnostic "Provider=GitHub Method=$Method Path=$safePath HTTP=$status response text omitted"
         throw "GitHub API $Method $Path failed (HTTP $status)."
     }
 }
@@ -511,6 +673,7 @@ function New-SuperPushToken {
     )
 
     $jwt = New-GitHubAppJwt $ClientId $PrivateKey
+    Add-SuperPushSecret $jwt
     try {
         $parts = $Repository.Split('/', 2)
         $owner = [Uri]::EscapeDataString($parts[0])
@@ -525,6 +688,7 @@ function New-SuperPushToken {
                 repositories = @($parts[1])
                 permissions = @{ contents = 'write' }
             }
+        Add-SuperPushSecret $grant.token
         $grant | Add-Member -NotePropertyName installation_id `
             -NotePropertyValue $installation.id -Force
         $grant
@@ -554,7 +718,9 @@ function Invoke-SuperPushGit {
         [Parameter(Mandatory)][string]$Token
     )
 
+    Add-SuperPushSecret $Token
     $basic = [Convert]::ToBase64String([Text.Encoding]::UTF8.GetBytes("x-access-token:$Token"))
+    Add-SuperPushSecret $basic
     $repositoryUrl = "https://github.com/$($State.Repository).git"
     $config = [ordered]@{
         'http.extraHeader' = ''
@@ -579,10 +745,10 @@ function Invoke-SuperPushGit {
     $previous = @{}
     foreach ($name in $environmentNames) {
         $previous[$name] = [Environment]::GetEnvironmentVariable($name)
-        [Environment]::SetEnvironmentVariable($name, $null)
     }
 
     try {
+        foreach ($name in $environmentNames) { [Environment]::SetEnvironmentVariable($name, $null) }
         [Environment]::SetEnvironmentVariable('GIT_CONFIG_GLOBAL', '/dev/null')
         [Environment]::SetEnvironmentVariable('GIT_CONFIG_SYSTEM', '/dev/null')
         [Environment]::SetEnvironmentVariable('GIT_CONFIG_NOSYSTEM', '1')
@@ -602,14 +768,25 @@ function Invoke-SuperPushGit {
     }
     finally {
         $basic = $null
+        $restoreFailures = @()
         foreach ($name in $environmentNames) {
-            if ($null -eq $previous[$name]) {
-                Remove-Item -LiteralPath "Env:$name" -ErrorAction SilentlyContinue
+            try {
+                if ($null -eq $previous[$name]) {
+                    if (Test-Path -LiteralPath "Env:$name") { Remove-Item -LiteralPath "Env:$name" -ErrorAction Stop }
+                } else { [Environment]::SetEnvironmentVariable($name, $previous[$name]) }
             }
-            else {
-                [Environment]::SetEnvironmentVariable($name, $previous[$name])
+            catch {
+                # Continue restoring the remaining entries, without including
+                # credential-bearing values or arbitrary exception messages.
+                $restoreFailures += $name
             }
         }
+        if ($restoreFailures.Count) {
+            $message = "Git environment cleanup failed for: $($restoreFailures -join ', ')."
+            Add-SuperPushDiagnostic $message
+            throw $message
+        }
+        Add-SuperPushDiagnostic 'Cleanup Phase=git-environment outcome=restored'
     }
 }
 
@@ -636,34 +813,63 @@ function Invoke-SuperPush {
     [CmdletBinding()]
     param()
 
-    $confirmed = Get-SuperPushState
-    Show-SuperPushEvidence $confirmed
-    if (-not (Test-SuperPushDocumentationOnly $confirmed)) {
-        Confirm-SuperPush
+    $previousDiagnostics = $script:SuperPushDiagnostics
+    $script:SuperPushDiagnostics = @{
+        Phase = 'preflight'
+        Lines = [Collections.Generic.List[string]]::new()
+        Secrets = [Collections.Generic.List[string]]::new()
     }
-    $beforeCredential = Get-SuperPushState
-    Assert-UnchangedState $confirmed $beforeCredential
-
+    Add-SuperPushSecret $env:OP_SERVICE_ACCOUNT_TOKEN
+    $cwd = Protect-SuperPushText (Get-Location).ProviderPath
+    Add-SuperPushDiagnostic "InvocationCwd=$cwd Time=$([DateTimeOffset]::UtcNow.ToString('o'))"
+    $confirmed = $null
     $credential = $null
     $grant = $null
     $failure = $null
+    $failurePhase = $null
     $pushConfirmed = $false
+    $pushAttempted = $false
     $revocationConfirmed = $false
+    $diagnosticPath = $null
     try {
+        $confirmed = Get-SuperPushState
+        $script:SuperPushDiagnostics.Phase = 'evidence'
+        Show-SuperPushEvidence $confirmed
+        $script:SuperPushDiagnostics.Phase = 'confirmation'
+        if (-not (Test-SuperPushDocumentationOnly $confirmed)) { Confirm-SuperPush }
+        $script:SuperPushDiagnostics.Phase = 'pre-credential'
+        $beforeCredential = Get-SuperPushState
+        Assert-UnchangedState $confirmed $beforeCredential
+
+        $script:SuperPushDiagnostics.Phase = 'credential'
         $credential = Get-SuperPushAppCredential
+        Add-SuperPushSecret $credential.PrivateKey
+        $script:SuperPushDiagnostics.Phase = 'token'
         $grant = New-SuperPushToken `
             $beforeCredential.Repository $credential.ClientId $credential.PrivateKey
+        Add-SuperPushSecret $grant.token
         $credential.PrivateKey = $null
+        $script:SuperPushDiagnostics.Phase = 'token-validation'
         Assert-SuperPushToken $grant $beforeCredential.Repository
 
+        $script:SuperPushDiagnostics.Phase = 'pre-push'
         $beforePush = Get-SuperPushState
         Assert-UnchangedState $confirmed $beforePush
+        $script:SuperPushDiagnostics.Phase = 'push'
+        $pushAttempted = $true
         Invoke-SuperPushGit $beforePush $grant.token | Out-Null
         $pushConfirmed = $true
+        $script:SuperPushDiagnostics.Phase = 'tracking-refresh'
         Update-SuperPushTrackingRef $beforePush
     }
     catch {
-        $failure = $_.Exception.Message
+        $failurePhase = $script:SuperPushDiagnostics.Phase
+        # Provider text may contain a not-yet-returned token/key. Retain phase
+        # and exception type only at these boundaries, never arbitrary payloads.
+        $failure = if ($failurePhase -in @('credential', 'token')) {
+            "Provider operation failed ($($_.Exception.GetType().Name)); response text omitted."
+        } else { Protect-SuperPushText $_.Exception.Message }
+        Add-SuperPushDiagnostic "Failure Phase=$failurePhase $failure"
     }
     finally {
         if ($null -ne $credential) {
@@ -674,37 +880,60 @@ function Invoke-SuperPush {
             $grant.PSObject.Properties.Name -contains 'token' -and
             -not [string]::IsNullOrWhiteSpace($grant.token)
         if ($grantHasToken) {
+            $script:SuperPushDiagnostics.Phase = 'revocation'
             try {
                 Remove-SuperPushToken $grant.token
                 $revocationConfirmed = $true
+                Add-SuperPushDiagnostic 'Cleanup Phase=revocation outcome=confirmed'
             }
             catch {
-                $expiry = if ($grant.PSObject.Properties.Name -contains 'expires_at') {
-                    $grant.expires_at
-                } else {
-                    'within one hour of minting'
+                $expiry = 'within one hour of minting'
+                if ($grant.PSObject.Properties.Name -contains 'expires_at' -and
+                    $grant.expires_at -cmatch '^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}Z$') {
+                    $expiry = $grant.expires_at
                 }
-                $revokeFailure = "Token revocation failed; GitHub expiry is $expiry."
+                $revokeFailure = "Token revocation failed ($($_.Exception.GetType().Name)); response text omitted; GitHub expiry is $expiry."
+                Add-SuperPushDiagnostic "Cleanup Phase=revocation outcome=not-confirmed $revokeFailure"
+                if (-not $failurePhase) { $failurePhase = 'revocation' }
                 $failure = if ($failure) { "$failure $revokeFailure" } else { $revokeFailure }
             }
-            finally {
-                $grant.token = $null
-            }
+            finally { $grant.token = $null }
+        }
+        else { Add-SuperPushDiagnostic 'Cleanup Phase=revocation outcome=no-returned-token' }
+
+        $pushStatus = if ($pushConfirmed) { 'accepted' } else { 'not-confirmed' }
+        $phase = if ($failurePhase) { $failurePhase } else { 'complete' }
+        $identity = if ($null -ne $confirmed) {
+            "Repository=$($confirmed.Repository) Root=$($confirmed.Root) Ref=$($confirmed.TargetRef) Old=$($confirmed.OldSha) New=$($confirmed.NewSha)"
+        } else { 'Repository=unknown Ref=refs/heads/main Old=unknown New=unknown' }
+        $installationId = if ($null -ne $grant -and
+            $grant.PSObject.Properties.Name -contains 'installation_id') { $grant.installation_id } else { 'unknown' }
+        $audit = Protect-SuperPushText "Cwd=$cwd Phase=$phase $identity Installation=$installationId Push=$pushStatus Attempted=$pushAttempted Revoked=$revocationConfirmed Time=$([DateTimeOffset]::UtcNow.ToString('o'))"
+        Add-SuperPushDiagnostic $audit
+        if ($pushAttempted -and -not $pushConfirmed) {
+            Add-SuperPushDiagnostic 'Push attempt outcome is unknown; do not retry without fresh reconciliation and approval.'
+        }
+        try {
+            $diagnosticPath = Save-SuperPushDiagnostics
+            $diagnosticPath = Protect-SuperPushText $diagnosticPath
+            Write-Host "Diagnostics: $diagnosticPath"
+        }
+        catch {
+            # Retention failure must not skip revocation or mask push uncertainty.
+            $retentionFailure = "Diagnostic retention failed ($($_.Exception.GetType().Name)); no safe file confirmed."
+            Write-Host $retentionFailure
+            if (-not $failurePhase) { $audit = $audit.Replace('Phase=complete', 'Phase=retention') }
+            $failure = if ($failure) { "$failure $retentionFailure" } else { $retentionFailure }
+        }
+        finally {
+            $script:SuperPushDiagnostics.Secrets.Clear()
+            $script:SuperPushDiagnostics = $previousDiagnostics
         }
     }
 
-    $timestamp = [DateTimeOffset]::UtcNow.ToString('o')
-    $installationId = if ($null -ne $grant -and
-        $grant.PSObject.Properties.Name -contains 'installation_id') {
-        $grant.installation_id
-    } else {
-        'unknown'
-    }
-    $pushStatus = if ($pushConfirmed) { 'accepted' } else { 'not-confirmed' }
-    $audit = "Repository=$($confirmed.Repository) Ref=$($confirmed.TargetRef) Old=$($confirmed.OldSha) New=$($confirmed.NewSha) Installation=$installationId Push=$pushStatus Revoked=$revocationConfirmed Time=$timestamp"
     if ($failure) {
-        throw "Super Push failed. $audit. $failure"
+        $uncertainty = if ($pushAttempted -and -not $pushConfirmed) { ' Push attempt outcome is unknown; fresh reconciliation and approval are required.' } else { '' }
+        throw "Super Push failed. $audit. $failure$uncertainty Diagnostics=$diagnosticPath"
     }
-
     Write-Host "Super Push succeeded. $audit"
 }
