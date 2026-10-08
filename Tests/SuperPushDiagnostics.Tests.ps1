@@ -1,5 +1,6 @@
 BeforeAll {
     . "$PSScriptRoot/../Functions/Invoke-SuperPush.ps1"
+    . "$PSScriptRoot/../Functions/New-SuperPushCandidate.ps1"
     $script:ActualSuperPushState = (Get-Command Get-SuperPushState).ScriptBlock
     $script:ActualPush = (Get-Command Invoke-SuperPushGit).ScriptBlock
     $script:ActualNewToken = (Get-Command New-SuperPushToken).ScriptBlock
@@ -21,6 +22,10 @@ Describe 'Super Push retained diagnostics' {
             param([Parameter(Position = 0, ValueFromRemainingArguments)][object[]]$Object)
             $script:DiagnosticHost.Add(($Object -join ' '))
         }
+        Mock Initialize-SuperPushInvocation { $null }
+        Mock Assert-SuperPushCandidateValidation {}
+        Mock Test-SuperPushCandidateDocumentationOnly { param($State); Test-SuperPushDocumentationOnly $State }
+        Mock Get-SuperPushCandidateReceipt { $null }
         Mock Get-SuperPushState { New-DiagnosticState }
         Mock Show-SuperPushEvidence {}
         Mock Test-SuperPushDocumentationOnly { $false }
@@ -34,6 +39,7 @@ Describe 'Super Push retained diagnostics' {
         Mock Remove-SuperPushToken {}
     }
     AfterEach {
+        $script:SuperPushDiagnostics = $null
         $env:OP_SERVICE_ACCOUNT_TOKEN = $script:PreviousAutomation
         $env:OP_BIOMETRIC_UNLOCK_ENABLED = $script:PreviousBiometric
         $script:OnePasswordPath = $script:PreviousOnePasswordPath
@@ -44,6 +50,21 @@ Describe 'Super Push retained diagnostics' {
             }
         }
     }
+    It 'redacts candidate patch display and never retains its content in diagnostics' {
+        $script:SuperPushDiagnostics = @{
+            Phase = 'evidence'
+            Lines = [Collections.Generic.List[string]]::new()
+            Secrets = [Collections.Generic.List[string]]::new()
+        }
+        Mock Invoke-SuperPushGitProcess {
+            [pscustomobject]@{ ExitCode = 0; Stdout = "- fictional-ds9-patch-line`n+ Bearer fictional-secret-token`n"; Stderr = '' }
+        }
+        Show-SuperPushCandidatePatch (New-DiagnosticState)
+        ($script:SuperPushDiagnostics.Lines -join "`n") | Should -Not -Match 'fictional-ds9-patch-line|fictional-secret-token'
+        Should -Invoke Write-Host -Times 1 -Exactly -ParameterFilter { $Object -eq '- fictional-ds9-patch-line' }
+        Should -Invoke Write-Host -Times 1 -Exactly -ParameterFilter { $Object -eq '+ [REDACTED AUTH]' }
+    }
+
     It 'retains early failures with actual cwd and phase, before credentials' {
         Mock Get-SuperPushState { throw 'fetch failed at Bajor' }
         { Invoke-SuperPush } | Should -Throw '*Phase=preflight*fetch failed at Bajor*'

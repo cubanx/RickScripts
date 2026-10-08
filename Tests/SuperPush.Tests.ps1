@@ -7,6 +7,7 @@ Describe 'Invoke-SuperPush safety boundary' {
         $script:ExportedCommands = @($module.ExportedCommands.Keys)
         Remove-Module $module -Force
         . $functionPath
+        . "$PSScriptRoot/../Functions/New-SuperPushCandidate.ps1"
         $script:GitExecutable = '/usr/bin/git'
 
         function New-TestSuperPushState {
@@ -32,14 +33,23 @@ Describe 'Invoke-SuperPush safety boundary' {
         }
     }
 
-    It 'exports a no-argument advanced function' {
+    BeforeEach {
+        Mock Initialize-SuperPushInvocation { $null }
+        Mock Assert-SuperPushCandidateValidation {}
+        Mock Test-SuperPushCandidateDocumentationOnly { param($State); Test-SuperPushDocumentationOnly $State }
+        Mock Get-SuperPushCandidateReceipt { $null }
+    }
+
+    It 'exports an advanced function without target or credential overrides' {
         $script:ExportedCommands | Should -Contain 'Invoke-SuperPush'
+        $script:ExportedCommands | Should -Contain 'New-SuperPushCandidate'
+        (Get-Command New-SuperPushCandidate).CmdletBinding | Should -BeTrue
         $command = Get-Command Invoke-SuperPush -CommandType Function
         $command.CmdletBinding | Should -BeTrue
         foreach ($parameter in 'Repository', 'Ref', 'Force', 'Credential', 'Yes', 'Confirm') {
             $command.Parameters.Keys | Should -Not -Contain $parameter
         }
-        foreach ($helper in 'Get-SuperPushState', 'Get-SuperPushAppCredential', 'New-SuperPushToken', 'Invoke-SuperPushGit', 'Update-SuperPushTrackingRef') {
+        foreach ($helper in 'Get-SuperPushState', 'Get-SuperPushAppCredential', 'New-SuperPushToken', 'Invoke-SuperPushGit', 'Update-SuperPushTrackingRef', 'New-SuperPushCandidateAttempt', 'Initialize-SuperPushInvocation', 'Get-SuperPushCandidateReceipt') {
             $script:ExportedCommands | Should -Not -Contain $helper
         }
     }

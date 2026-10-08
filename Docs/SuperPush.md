@@ -28,6 +28,12 @@ can read the long-lived App key and mint GitHub installation tokens within the
 App's permissions; cmdlet confirmations do not constrain independent use of
 the key. No plaintext local projection is introduced.
 
+## Task-scoped preparation
+
+See [SuperPushPreparation.md](SuperPushPreparation.md) for selected-commit replay
+onto current main, the smooth docs-only flow, required non-doc validation, and
+the pre-approval Pi preparation contract. Super Push never merges whole branches.
+
 ## Host credential prompt controls
 
 Preflight accepts `GIT_CONFIG_COUNT` only when it describes zero to two unique
