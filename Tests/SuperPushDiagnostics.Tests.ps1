@@ -3,6 +3,8 @@ BeforeAll {
     $script:ActualSuperPushState = (Get-Command Get-SuperPushState).ScriptBlock
     $script:ActualPush = (Get-Command Invoke-SuperPushGit).ScriptBlock
     $script:ActualNewToken = (Get-Command New-SuperPushToken).ScriptBlock
+    $script:ActualCredential = (Get-Command Get-SuperPushAppCredential).ScriptBlock
+    function Invoke-DiagnosticOnePasswordStub { throw 'Offline CLI stub was not mocked.' }
     function New-DiagnosticState {
         [pscustomobject]@{ Repository = 'Crisp-Inc/defiant'; Root = '/tmp/defiant'; Origin = 'https://github.com/Crisp-Inc/defiant.git'; TargetRef = 'refs/heads/main'; OldSha = '1' * 40; NewSha = '2' * 40 }
     }
@@ -12,6 +14,8 @@ Describe 'Super Push retained diagnostics' {
         $script:DiagnosticHost = [Collections.Generic.List[string]]::new()
         $script:DiagnosticFile = $null
         $script:PreviousAutomation = $env:OP_SERVICE_ACCOUNT_TOKEN
+        $script:PreviousBiometric = $env:OP_BIOMETRIC_UNLOCK_ENABLED
+        $script:PreviousOnePasswordPath = $script:OnePasswordPath
         $env:OP_SERVICE_ACCOUNT_TOKEN = 'fictional-bajor-automation'
         Mock Write-Host {
             param([Parameter(Position = 0, ValueFromRemainingArguments)][object[]]$Object)
@@ -31,6 +35,8 @@ Describe 'Super Push retained diagnostics' {
     }
     AfterEach {
         $env:OP_SERVICE_ACCOUNT_TOKEN = $script:PreviousAutomation
+        $env:OP_BIOMETRIC_UNLOCK_ENABLED = $script:PreviousBiometric
+        $script:OnePasswordPath = $script:PreviousOnePasswordPath
         foreach ($line in $script:DiagnosticHost) {
             if ($line.StartsWith('Diagnostics: ')) {
                 $path = $line.Substring(13)
@@ -110,6 +116,65 @@ Describe 'Super Push retained diagnostics' {
         $path = @($script:DiagnosticHost | Where-Object { $_.StartsWith('Diagnostics: ') })[0].Substring(13)
         ([IO.File]::ReadAllText($path) + ($script:DiagnosticHost -join "`n")) | Should -Not -Match 'opaque-provider-secret'
         Should -Invoke New-SuperPushToken -Times 0 -Exactly
+    }
+    It 'retains a fixed credential code without provider values' -ForEach @(
+        @{ Fault = 'missing-token'; ExpectedCode = 'automation-token-missing' },
+        @{ Fault = 'item'; ExpectedCode = 'item-mismatch' },
+        @{ Fault = 'vault'; ExpectedCode = 'vault-mismatch' },
+        @{ Fault = 'client-missing'; ExpectedCode = 'client-id-invalid' },
+        @{ Fault = 'client-duplicate'; ExpectedCode = 'client-id-invalid' },
+        @{ Fault = 'client-empty'; ExpectedCode = 'client-id-invalid' },
+        @{ Fault = 'key-missing'; ExpectedCode = 'private-key-invalid' },
+        @{ Fault = 'key-empty'; ExpectedCode = 'private-key-invalid' },
+        @{ Fault = 'key-duplicate'; ExpectedCode = 'private-key-invalid' },
+        @{ Fault = 'cli-exit'; ExpectedCode = 'cli-exit' },
+        @{ Fault = 'cli-json'; ExpectedCode = 'cli-json-invalid' },
+        @{ Fault = 'cli-launch'; ExpectedCode = 'cli-launch-failed' }
+    ) {
+        $script:CredentialFault = $Fault
+        $env:OP_BIOMETRIC_UNLOCK_ENABLED = 'true'
+        if ($Fault -eq 'missing-token') { $env:OP_SERVICE_ACCOUNT_TOKEN = $null }
+        Mock Get-SuperPushAppCredential { & $script:ActualCredential }
+        # Mock the executable, not credential resolution: exercise the real CLI
+        # parsing and validation, but never access 1Password or real credentials.
+        $script:OnePasswordPath = 'Invoke-DiagnosticOnePasswordStub'
+        Mock Invoke-DiagnosticOnePasswordStub {
+            $env:OP_BIOMETRIC_UNLOCK_ENABLED | Should -Be 'false'
+            if ($script:CredentialFault -eq 'cli-launch') { throw 'opaque-garak-launch-secret' }
+            $global:LASTEXITCODE = if ($script:CredentialFault -eq 'cli-exit') { 17 } else { 0 }
+            if ($script:CredentialFault -in @('cli-exit', 'cli-json')) { return 'opaque-garak-provider-secret' }
+            $item = [pscustomobject]@{
+                id = 'elv65z73smxy4uq5jii57djpge'
+                vault = [pscustomobject]@{ id = 'bcxp54juyo54olkp6ysoe4lzky' }
+                fields = @(
+                    [pscustomobject]@{ label = 'client-id'; value = 'opaque-garak-client' },
+                    [pscustomobject]@{ label = 'private-key'; value = 'opaque-garak-key' }
+                )
+            }
+            switch ($script:CredentialFault) {
+                'item' { $item.id = 'opaque-garak-item' }
+                'vault' { $item.vault.id = 'opaque-garak-vault' }
+                'client-missing' { $item.fields = @($item.fields[1]) }
+                'client-duplicate' { $item.fields += $item.fields[0] }
+                'client-empty' { $item.fields[0].value = '' }
+                'key-missing' { $item.fields = @($item.fields[0]) }
+                'key-empty' { $item.fields[1].value = '' }
+                'key-duplicate' { $item.fields += $item.fields[1] }
+            }
+            ConvertTo-Json -InputObject $item -Depth 5 -Compress
+        }
+        $failure = $null
+        try { Invoke-SuperPush } catch { $failure = $_.Exception.Message }
+        $failure | Should -Match 'Phase=credential'
+        $failure | Should -Match 'Attempted=False'
+        $path = @($script:DiagnosticHost | Where-Object { $_.StartsWith('Diagnostics: ') })[0].Substring(13)
+        $evidence = [IO.File]::ReadAllText($path) + $failure + ($script:DiagnosticHost -join "`n")
+        $evidence | Should -Match "CredentialFailure Code=$ExpectedCode\b"
+        $evidence | Should -Not -Match 'opaque-garak'
+        Should -Invoke Invoke-DiagnosticOnePasswordStub -Times $(if ($Fault -eq 'missing-token') { 0 } else { 1 }) -Exactly
+        Should -Invoke New-SuperPushToken -Times 0 -Exactly
+        Should -Invoke Invoke-SuperPushGit -Times 0 -Exactly
+        $env:OP_BIOMETRIC_UNLOCK_ENABLED | Should -Be 'true'
     }
     It 'registers the real token-minting JWT before provider failure' {
         Mock New-SuperPushToken { param($Repository, $ClientId, $PrivateKey) & $script:ActualNewToken $Repository $ClientId $PrivateKey }

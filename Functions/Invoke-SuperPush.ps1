@@ -475,8 +475,17 @@ function Assert-UnchangedState {
 function Invoke-OnePasswordJson {
     param([Parameter(Mandatory)][string[]]$Arguments)
 
-    $output = @(& $script:OnePasswordPath @Arguments 2>&1 | ForEach-Object { $_.ToString() })
+    try {
+        $output = @(& $script:OnePasswordPath @Arguments 2>&1 | ForEach-Object { $_.ToString() })
+    }
+    catch {
+        Add-SuperPushDiagnostic 'CredentialFailure Code=cli-launch-failed'
+        # Launch errors can contain credentials or ambient paths. Never retain
+        # their message, ErrorRecord, or invocation details.
+        throw '1Password credential CLI invocation failed; response text omitted.'
+    }
     if ($LASTEXITCODE -ne 0) {
+        Add-SuperPushDiagnostic 'CredentialFailure Code=cli-exit'
         Add-SuperPushDiagnostic "Provider=1Password Exit=$LASTEXITCODE response text omitted"
         throw "1Password command failed while resolving $script:SuperPushItem."
     }
@@ -484,6 +493,7 @@ function Invoke-OnePasswordJson {
         $output -join "`n" | Microsoft.PowerShell.Utility\ConvertFrom-Json -Depth 20
     }
     catch {
+        Add-SuperPushDiagnostic 'CredentialFailure Code=cli-json-invalid'
         Add-SuperPushDiagnostic 'Provider=1Password metadata=malformed response text omitted'
         throw "1Password returned malformed metadata for $script:SuperPushItem."
     }
@@ -491,6 +501,7 @@ function Invoke-OnePasswordJson {
 
 function Get-SuperPushAppCredential {
     if ([string]::IsNullOrWhiteSpace($env:OP_SERVICE_ACCOUNT_TOKEN)) {
+        Add-SuperPushDiagnostic 'CredentialFailure Code=automation-token-missing'
         throw 'Super Push requires Local Automation through OP_SERVICE_ACCOUNT_TOKEN; desktop authentication is not supported.'
     }
 
@@ -505,18 +516,22 @@ function Get-SuperPushAppCredential {
             if ($field.PSObject.Properties.Name -contains 'value') { Add-SuperPushSecret $field.value }
         }
         if ($item.id -cne $script:SuperPushItemId) {
+            Add-SuperPushDiagnostic 'CredentialFailure Code=item-mismatch'
             throw '1Password did not return the canonical item for Super Push.'
         }
         if ($item.vault.id -cne $script:SuperPushVault) {
+            Add-SuperPushDiagnostic 'CredentialFailure Code=vault-mismatch'
             throw 'The Super Push App credential must be stored in the fixed Automation vault.'
         }
 
         $clientFields = @($item.fields | Where-Object { $_.label -ceq 'client-id' })
         $keyFields = @($item.fields | Where-Object { $_.label -ceq 'private-key' })
         if ($clientFields.Count -ne 1 -or [string]::IsNullOrWhiteSpace($clientFields[0].value)) {
+            Add-SuperPushDiagnostic 'CredentialFailure Code=client-id-invalid'
             throw "The $script:SuperPushItem item requires one client-id field."
         }
         if ($keyFields.Count -ne 1 -or [string]::IsNullOrWhiteSpace($keyFields[0].value)) {
+            Add-SuperPushDiagnostic 'CredentialFailure Code=private-key-invalid'
             throw "The $script:SuperPushItem item requires one private-key field."
         }
 

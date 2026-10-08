@@ -22,6 +22,26 @@ credential route, retry, or force-push authorization is changed.
 Failures still require reconciliation and fresh authorization before any retry.
 These diagnostics do not identify the cause of either historical failure.
 
+## Credential failure codes
+
+Known credential gates retain one fixed `CredentialFailure Code=<code>` line:
+
+| Code | Meaning |
+| --- | --- |
+| `automation-token-missing` | The process has no nonblank Automation token. |
+| `cli-launch-failed` | The credential CLI invocation threw before normal exit handling. |
+| `cli-exit` | The CLI returned a nonzero status; the existing CLI status line records it. |
+| `cli-json-invalid` | The CLI output could not be parsed as JSON. |
+| `item-mismatch` | The returned item ID differs from the canonical item. |
+| `vault-mismatch` | The returned vault ID differs from the fixed Automation vault. |
+| `client-id-invalid` | The client ID field is missing, duplicated or blank. |
+| `private-key-invalid` | The private key field is missing, duplicated or blank. |
+
+Codes are literal diagnostic categories, not provider messages or credential
+values. Unexpected errors outside these gates retain only the existing phase and
+exception type; absence of a code does not establish a cause. Historical files
+are unchanged, so these codes cannot diagnose the earlier failure retroactively.
+
 ## Redaction and limits
 
 The Automation token is not the only secret: private keys (including PEM body
