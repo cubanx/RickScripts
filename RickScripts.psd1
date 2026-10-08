@@ -7,6 +7,7 @@
     
     # Script module or binary module file associated with this manifest
     RootModule = 'RickScripts.psm1'
+    FormatsToProcess = @('Formats/OrcaReap.format.ps1xml')
     
     # Functions to export from this module
     FunctionsToExport = @(

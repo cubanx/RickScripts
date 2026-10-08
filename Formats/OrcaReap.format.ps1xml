@@ -1,0 +1,81 @@
+<?xml version="1.0" encoding="utf-8"?>
+<Configuration>
+  <ViewDefinitions>
+    <View>
+      <Name>RickScripts.OrcaReapSummary</Name>
+      <ViewSelectedBy><TypeName>RickScripts.OrcaReapSummary</TypeName></ViewSelectedBy>
+      <CustomControl>
+        <CustomEntries>
+          <CustomEntry>
+            <CustomItem>
+              <ExpressionBinding>
+                <ScriptBlock>
+                  $summary = $_
+                  if ($summary.SpectreRendered) { return }
+                  $lines = [System.Collections.Generic.List[string]]::new()
+                  $lines.Add("Orca cleanup | Age &gt; $($summary.InactiveDays) days | Force: $($summary.Force)")
+                  $coverage = if ($summary.CoverageComplete) { 'complete local runtime listing' } else { "INCOMPLETE ($($summary.CoverageReason))" }
+                  $lines.Add("Coverage: $coverage")
+                  $lines.Add("Candidates: $($summary.CandidateCount) | Deleted: $($summary.DeletedCount) | Skipped: $($summary.SkippedCount) | Failed: $($summary.FailedCount)")
+                  $rows = @($summary.Results | Where-Object {
+                    -not ($_.IsMainWorktree -and $_.Status -eq 'Skipped' -and $_.Reason -eq 'ProtectedWorktree')
+                  } | Sort-Object Worktree)
+                  if ($rows.Count -gt 0) {
+                    $table = $rows | Select-Object Worktree,
+                      @{Name='Age'; Expression={if ($_.Checks.OldEnough -eq $true) {'✅'} elseif ($_.Checks.AgeDays -is [int] -and $_.Checks.AgeDays -ge 0) {"$($_.Checks.AgeDays)d"} else {'❌'}}},
+                      @{Name='Idle'; Expression={if ($_.Checks.Inactive -eq $true) {'✅'} else {'❌'}}},
+                      @{Name='Unpinned'; Expression={if ($_.Checks.Unpinned -eq $true) {'✅'} else {'❌'}}},
+                      @{Name='NoKids'; Expression={if ($_.Checks.NoChildren -eq $true) {'✅'} else {'❌'}}},
+                      @{Name='Ready'; Expression={if ($_.Checks.Ready -eq $true) {'✅'} else {'❌'}}} |
+                      Format-Table -AutoSize -Wrap | Out-String -Width 80
+                    $lines.Add('')
+                    $lines.Add($table.Trim())
+                  }
+                  $lines.Add('')
+                  $lines.Add('✅ passed | Age in days = too recent | ❌ blocked or not verified. All green = eligible under selected checks.')
+                  $lines.Add('Ready also requires identity, scope, Git and resource checks to pass.')
+                  if ($summary.Force) {
+                    $lines.Add('Force passes --force to Orca; local file safety is delegated to Orca and hooks.')
+                  }
+                  $lines.Add('Details: $result.Results | Select-Object Worktree,Checks,Explanation')
+                  $lines -join [Environment]::NewLine
+                </ScriptBlock>
+              </ExpressionBinding>
+              <NewLine />
+            </CustomItem>
+          </CustomEntry>
+        </CustomEntries>
+      </CustomControl>
+    </View>
+    <View>
+      <Name>RickScripts.OrcaReapResult</Name>
+      <ViewSelectedBy><TypeName>RickScripts.OrcaReapResult</TypeName></ViewSelectedBy>
+      <TableControl>
+        <AutoSize />
+        <TableHeaders>
+          <TableColumnHeader><Label>Worktree</Label></TableColumnHeader>
+          <TableColumnHeader><Label>Age</Label></TableColumnHeader>
+          <TableColumnHeader><Label>Idle</Label></TableColumnHeader>
+          <TableColumnHeader><Label>Unpinned</Label></TableColumnHeader>
+          <TableColumnHeader><Label>NoKids</Label></TableColumnHeader>
+          <TableColumnHeader><Label>Ready</Label></TableColumnHeader>
+          <TableColumnHeader><Label>Status</Label></TableColumnHeader>
+        </TableHeaders>
+        <TableRowEntries>
+          <TableRowEntry>
+            <Wrap />
+            <TableColumnItems>
+              <TableColumnItem><PropertyName>Worktree</PropertyName></TableColumnItem>
+              <TableColumnItem><ScriptBlock>if ($_.Checks.OldEnough -eq $true) {'✅'} elseif ($_.Checks.AgeDays -is [int] -and $_.Checks.AgeDays -ge 0) {"$($_.Checks.AgeDays)d"} else {'❌'}</ScriptBlock></TableColumnItem>
+              <TableColumnItem><ScriptBlock>if ($_.Checks.Inactive -eq $true) {'✅'} else {'❌'}</ScriptBlock></TableColumnItem>
+              <TableColumnItem><ScriptBlock>if ($_.Checks.Unpinned -eq $true) {'✅'} else {'❌'}</ScriptBlock></TableColumnItem>
+              <TableColumnItem><ScriptBlock>if ($_.Checks.NoChildren -eq $true) {'✅'} else {'❌'}</ScriptBlock></TableColumnItem>
+              <TableColumnItem><ScriptBlock>if ($_.Checks.Ready -eq $true) {'✅'} else {'❌'}</ScriptBlock></TableColumnItem>
+              <TableColumnItem><PropertyName>Status</PropertyName></TableColumnItem>
+            </TableColumnItems>
+          </TableRowEntry>
+        </TableRowEntries>
+      </TableControl>
+    </View>
+  </ViewDefinitions>
+</Configuration>

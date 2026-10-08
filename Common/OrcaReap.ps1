@@ -62,20 +62,45 @@ function Test-OrcaReapCoverage {
         $Result.hostScope.hostIds.Count -eq 1 -and $Result.hostScope.hostIds[0] -ceq 'local')
 }
 
+function Get-OrcaReapPathMissing {
+    param([string]$Path)
+    if (-not [IO.Path]::IsPathFullyQualified($Path)) { throw 'PathUnverified' }
+    # Exists() hides access/I/O errors. GetAttributes distinguishes absence from failure
+    # and recognizes existing files and dangling symlinks as non-missing entries.
+    $probe = [IO.Path]::TrimEndingDirectorySeparator($Path)
+    while ($true) {
+        try {
+            $attributes = [IO.File]::GetAttributes($probe)
+            if ($probe -ceq [IO.Path]::TrimEndingDirectorySeparator($Path)) { return $false }
+            # An absent descendant of a link/non-directory is not proven safe to waive.
+            if (($attributes -band [IO.FileAttributes]::ReparsePoint) -or
+                -not ($attributes -band [IO.FileAttributes]::Directory)) { throw 'PathUnverified' }
+            return $true
+        }
+        catch [IO.FileNotFoundException] { }
+        catch [IO.DirectoryNotFoundException] { }
+        catch { throw 'PathUnverified' }
+        # A missing-path exception is handled by checking its nearest existing parent.
+        $parent = [IO.Path]::GetDirectoryName($probe)
+        if ([string]::IsNullOrEmpty($parent) -or $parent -ceq $probe) { throw 'PathUnverified' }
+        $probe = $parent
+    }
+}
+
 function Get-OrcaReapDiagnostic {
     param($ErrorRecord)
     # Allow only our fixed reason codes; never copy provider, Git, hook or JSON error text.
     $reason = $ErrorRecord.Exception.Message
     $codes = @('CommandTimeout', 'MalformedResponse', 'InvalidResponse', 'IncompleteCoverage',
         'IdentityUnverified', 'IdentityChanged', 'ProtectedWorktree', 'TimestampInvalid',
-        'RecentlyActive', 'ActivityUnverified', 'ActiveResources', 'GitDirty', 'GitUnverified',
-        'GitUnmerged', 'GitRemoteStale', 'GitReflogUnmerged', 'RuntimeChanged', 'RemovalUnverified')
+        'RecentlyActive', 'ActivityUnverified', 'ActiveResources', 'GitUnverified',
+        'RuntimeChanged', 'RemovalUnverified', 'PathChanged', 'PathUnverified')
     if ($reason -in $codes -or $reason -match '^CommandExit:-?\d+$') { return $reason }
     return "CheckFailed:$($ErrorRecord.Exception.GetType().Name)"
 }
 
 function Assert-OrcaReapMetadata {
-    param($Tree, $Activity, [int]$InactiveDays, [DateTimeOffset]$Now)
+    param($Tree, $Activity, [int]$InactiveDays, [DateTimeOffset]$Now, [switch]$SkipAge)
     if ($Tree -isnot [System.Collections.IDictionary] -or
         [string]::IsNullOrWhiteSpace($Tree.id) -or [string]::IsNullOrWhiteSpace($Tree.path) -or
         [string]::IsNullOrWhiteSpace($Tree.repoId) -or [string]::IsNullOrWhiteSpace($Tree.instanceId) -or
@@ -88,16 +113,18 @@ function Assert-OrcaReapMetadata {
         if ($Tree[$key] -isnot [bool] -or $Tree[$key]) { throw 'ProtectedWorktree' }
     }
     if ($Tree.childWorktreeIds -isnot [array] -or $Tree.childWorktreeIds.Count -ne 0) { throw 'ProtectedWorktree' }
-    if ($Tree.lastActivityAt -isnot [long] -and $Tree.lastActivityAt -isnot [int]) { throw 'TimestampInvalid' }
-    try { $lastActivity = [DateTimeOffset]::FromUnixTimeMilliseconds($Tree.lastActivityAt) }
-    catch { throw 'TimestampInvalid' }
-    if ($Tree.lastActivityAt -le 0 -or $lastActivity -gt $Now) { throw 'TimestampInvalid' }
-    if ($lastActivity -ge $Now.AddDays(-$InactiveDays)) { throw 'RecentlyActive' }
+    if (-not $SkipAge) {
+        if ($Tree.lastActivityAt -isnot [long] -and $Tree.lastActivityAt -isnot [int]) { throw 'TimestampInvalid' }
+        try { $lastActivity = [DateTimeOffset]::FromUnixTimeMilliseconds($Tree.lastActivityAt) }
+        catch { throw 'TimestampInvalid' }
+        if ($Tree.lastActivityAt -le 0 -or $lastActivity -gt $Now) { throw 'TimestampInvalid' }
+        if ($lastActivity -ge $Now.AddDays(-$InactiveDays)) { throw 'RecentlyActive' }
+    }
     if ($Activity -isnot [System.Collections.IDictionary] -or
         $Activity.worktreeId -cne $Tree.id -or $Activity.path -cne $Tree.path -or
         $Activity.worktreeInstanceId -cne $Tree.instanceId -or $Activity.hostId -cne 'local' -or
-        ($Activity.lastActivityAt -isnot [long] -and $Activity.lastActivityAt -isnot [int]) -or
-        $Activity.lastActivityAt -ne $Tree.lastActivityAt) { throw 'ActivityUnverified' }
+        (-not $SkipAge -and $Activity.lastActivityAt -isnot [long] -and $Activity.lastActivityAt -isnot [int]) -or
+        $Activity.lastActivityAt -cne $Tree.lastActivityAt) { throw 'ActivityUnverified' }
     foreach ($key in @('isMainWorktree', 'isPinned', 'hasAttachedPty', 'hasHostSidebarActivity', 'isActive')) {
         if ($Activity[$key] -isnot [bool] -or $Activity[$key]) { throw 'ActiveResources' }
     }
@@ -127,28 +154,65 @@ function Get-OrcaReapGitSafety {
     if ($registration.Count -ne 1 -or $registration[0] -match '(?m)^(locked|prunable|bare|detached)' -or
         $registration[0] -notmatch "(?m)^HEAD $head\r?$" -or
         $registration[0] -notmatch "(?m)^branch $([regex]::Escape($branch))\r?$") { throw 'GitUnverified' }
-    # Include ignored files: deletion would lose them too. Do not trust configured submodule ignores.
-    $dirty = [bool](Invoke-ReapGit @('status', '--porcelain=v1', '--untracked-files=all', '--ignored=matching', '--ignore-submodules=none')).Trim()
+    # Local file protection is delegated to Orca's guarded removal and archive hooks.
     if ((Invoke-ReapGit @('ls-files', '--stage')) -match '(?m)^160000 ') { throw 'GitUnverified' }
     if ((Invoke-ReapGit @('stash', 'list', '--format=%H')).Trim()) { throw 'GitUnverified' }
-    # A local branch/tag or stale cached remote is insufficient proof of published, merged commits.
-    if ($Tree.baseRef -notmatch '^refs/remotes/([^/]+)/(.+)$') { throw 'GitUnverified' }
-    $remote = $Matches[1]; $remoteBranch = $Matches[2]
-    if ($remote.StartsWith('-') -or $remoteBranch.StartsWith('-')) { throw 'GitUnverified' }
-    $base = (Invoke-ReapGit @('rev-parse', '--verify', "$($Tree.baseRef)^{commit}")).Trim()
-    $advertised = (Invoke-ReapGit @('ls-remote', '--exit-code', '--refs', $remote, "refs/heads/$remoteBranch")).Trim()
-    if ($advertised -cne "$base`trefs/heads/$remoteBranch") { throw 'GitRemoteStale' }
-    # merge-base exits nonzero when HEAD is not contained in the live remote base.
-    Invoke-ReapGit @('merge-base', '--is-ancestor', $head, $base) | Out-Null
-    $history = (Invoke-ReapGit @('reflog', 'show', '--format=%H', 'HEAD')).Trim()
-    if (-not $history) { throw 'GitUnverified' }
-    foreach ($commit in @($history -split '\r?\n' | Select-Object -Unique)) {
-        if ($commit -notmatch '^[a-f0-9]{40,64}$') { throw 'GitUnverified' }
-        Invoke-ReapGit @('merge-base', '--is-ancestor', $commit, $base) | Out-Null
-    }
+    # Commit ancestry, reflogs, and remote/base refs deliberately do not gate removal.
     # Detect concurrent Git changes during the above checks.
     if ((Invoke-ReapGit @('rev-parse', 'HEAD')).Trim() -cne $head -or
         (Invoke-ReapGit @('symbolic-ref', '-q', 'HEAD')).Trim() -cne $branch) { throw 'GitUnverified' }
-    $dirty = $dirty -or [bool](Invoke-ReapGit @('status', '--porcelain=v1', '--untracked-files=all', '--ignored=matching', '--ignore-submodules=none')).Trim()
-    return [pscustomobject]@{ HasLocalFiles = $dirty }
+    return [pscustomobject]@{ Verified = $true }
+}
+
+# Presentation-only audit. Null means unverified, not a passed check.
+# Removal still requires the full assertions and immediate revalidation below.
+function Get-OrcaReapMetadataAssessment {
+    param($Tree, $Activity, [int]$InactiveDays, [DateTimeOffset]$Now = [DateTimeOffset]::UtcNow)
+    $checks = [pscustomobject]@{
+        OldEnough = $null; AgeDays = $null; Inactive = $null; Unpinned = $null; NoChildren = $null
+        Ready = $false
+    }
+    $protection = [System.Collections.Generic.List[string]]::new()
+    if ($Tree) {
+        foreach ($flag in @('isMainWorktree', 'isPinned', 'isBare')) {
+            if ($Tree[$flag] -isnot [bool]) { $protection.Add("Unverified $flag flag") }
+            elseif ($Tree[$flag]) {
+                $protection.Add($(switch ($flag) {
+                    isMainWorktree { 'Main worktree' }
+                    isPinned { 'Pinned' }
+                    isBare { 'Bare repository' }
+                }))
+            }
+        }
+        if ($Tree.isPinned -is [bool]) { $checks.Unpinned = -not $Tree.isPinned }
+        if ($Tree.childWorktreeIds -is [array]) {
+            $checks.NoChildren = $Tree.childWorktreeIds.Count -eq 0
+            if (-not $checks.NoChildren) { $protection.Add("Has $($Tree.childWorktreeIds.Count) child worktree(s)") }
+        }
+        else { $protection.Add('Child-worktree metadata unverified') }
+        # Bounds avoid throwing for an invalid Unix-millisecond timestamp.
+        if (($Tree.lastActivityAt -is [long] -or $Tree.lastActivityAt -is [int]) -and
+            $Tree.lastActivityAt -gt 0 -and $Tree.lastActivityAt -le 253402300799999) {
+            $last = [DateTimeOffset]::FromUnixTimeMilliseconds($Tree.lastActivityAt)
+            if ($last -le $Now) {
+                $checks.AgeDays = [int][Math]::Floor(($Now - $last).TotalDays)
+                $checks.OldEnough = $last -lt $Now.AddDays(-$InactiveDays)
+            }
+        }
+    }
+    if ($Activity -is [System.Collections.IDictionary] -and $Tree -and
+        $Activity.worktreeId -ceq $Tree.id -and $Activity.path -ceq $Tree.path -and
+        $Activity.worktreeInstanceId -ceq $Tree.instanceId -and $Activity.hostId -ceq 'local' -and
+        ($Activity.lastActivityAt -is [int] -or $Activity.lastActivityAt -is [long]) -and
+        $Activity.lastActivityAt -eq $Tree.lastActivityAt -and
+        $Activity.status -is [string] -and
+        ($Activity.liveTerminalCount -is [int] -or $Activity.liveTerminalCount -is [long]) -and
+        $Activity.hasAttachedPty -is [bool] -and $Activity.hasHostSidebarActivity -is [bool] -and
+        $Activity.isActive -is [bool] -and $Activity.agents -is [array]) {
+        $checks.Inactive = $Activity.status -ceq 'inactive' -and $Activity.liveTerminalCount -eq 0 -and
+            -not $Activity.hasAttachedPty -and -not $Activity.hasHostSidebarActivity -and
+            -not $Activity.isActive -and $Activity.agents.Count -eq 0
+        if ($Activity.isPinned -is [bool] -and $Activity.isPinned) { $checks.Unpinned = $false }
+    }
+    [pscustomobject]@{ Checks = $checks; ProtectionReasons = @($protection.ToArray()) }
 }
