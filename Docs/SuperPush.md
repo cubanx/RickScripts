@@ -28,6 +28,34 @@ can read the long-lived App key and mint GitHub installation tokens within the
 App's permissions; cmdlet confirmations do not constrain independent use of
 the key. No plaintext local projection is introduced.
 
+## Docs-only workflow
+
+```powershell
+Import-Module RickScripts -Force
+Invoke-SuperPush
+```
+
+The no-argument cmdlet allows only text documentation under `docs/` or
+`openspec/`, or the existing root README/CHANGELOG/CONTRIBUTING/SECURITY/LICENSE
+names. `AGENTS.md`, binary files, symlinks, submodules, code and merge commits
+stop before pulling or accessing App credentials. Every outgoing commit is
+checked, so code added and later reverted is not treated as docs-only.
+
+On a clean attached branch, it checks the local changes against their common
+ancestor with fetched main, then runs `git pull origin main --rebase` with
+hooks and autostash disabled. Remote-only code changes do not disqualify local
+docs. It rechecks the resulting docs-only fast-forward snapshot before the
+existing credential and single non-force push flow. There is no commit selection,
+candidate worktree, validation command or receipt.
+
+A failed pull/rebase stops without pushing. A conflict is left for you to
+resolve or cancel with `git rebase --abort`; no automatic push retry occurs.
+If rebase leaves nothing to publish, the command stops without credentials.
+
+Detached snapshots used by the native Pi broker are never pulled or rewritten:
+a current docs-only fast-forward can publish unchanged; a stale snapshot stops
+and requires docs rebasing on an attached branch before fresh native approval.
+
 ## Host credential prompt controls
 
 Preflight accepts `GIT_CONFIG_COUNT` only when it describes zero to two unique
@@ -38,7 +66,7 @@ printing their values. Other ambient Git overrides remain forbidden. The push
 still replaces ambient indexed configuration with its own isolated settings.
 
 The fixed Crisp main target, selected-repository scope, fast-forward checks,
-existing push confirmation rules, hook isolation, and short-lived token
-revocation remain unchanged. Agent publication still requires its separate
-native Super Push approval; this change removes only runtime 1Password
-approval. No live push is needed to test credential selection.
+hook isolation, and short-lived token revocation remain unchanged. Non-docs
+changes now stop instead of asking for typed confirmation. Agent publication
+still requires its separate native Super Push approval. Automation-vault access
+removes only runtime 1Password approval. No live push is needed for validation.

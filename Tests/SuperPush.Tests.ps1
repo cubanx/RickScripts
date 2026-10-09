@@ -32,6 +32,11 @@ Describe 'Invoke-SuperPush safety boundary' {
         }
     }
 
+    BeforeEach {
+        Mock Sync-SuperPushDocumentation {}
+        Mock Assert-SuperPushDocumentationOnly {}
+    }
+
     It 'exports a no-argument advanced function' {
         $script:ExportedCommands | Should -Contain 'Invoke-SuperPush'
         $command = Get-Command Invoke-SuperPush -CommandType Function
@@ -546,7 +551,7 @@ Describe 'Invoke-SuperPush safety boundary' {
         }
     }
 
-    It 'performs three state reads, one push, and one revocation' {
+    It 'performs four state reads, one push, and one revocation' {
         $script:StateReads = 0
         $script:Pushes = 0
         $script:TrackingRefreshes = 0
@@ -565,11 +570,12 @@ Describe 'Invoke-SuperPush safety boundary' {
 
         Invoke-SuperPush
 
-        $script:StateReads | Should -Be 3
+        $script:StateReads | Should -Be 4
         $script:Pushes | Should -Be 1
         $script:TrackingRefreshes | Should -Be 1
         $script:Revocations | Should -Be 1
-        Should -Invoke Confirm-SuperPush -Times 1 -Exactly
+        Should -Invoke Confirm-SuperPush -Times 0 -Exactly
+        Should -Invoke Sync-SuperPushDocumentation -Times 1 -Exactly
     }
 
     It 'skips only the internal confirmation for documentation-only changes' {
@@ -588,7 +594,7 @@ Describe 'Invoke-SuperPush safety boundary' {
         Invoke-SuperPush
 
         Should -Invoke Confirm-SuperPush -Times 0 -Exactly
-        Should -Invoke Test-SuperPushDocumentationOnly -Times 1 -Exactly
+        Should -Invoke Assert-SuperPushDocumentationOnly -Times 1 -Exactly
     }
 
     It 'reports an accepted push when the tracking refresh cannot be confirmed' {
@@ -639,6 +645,17 @@ Describe 'Invoke-SuperPush safety boundary' {
         Mock Write-Host {}
 
         { Invoke-SuperPush } | Should -Throw '*Push=accepted*Revoked=False*GitHub expiry is 2099-01-01T00:00:00Z*'
+    }
+
+    It 'stops non-docs before credential access or publication' {
+        Mock Get-SuperPushState { New-TestSuperPushState }
+        Mock Sync-SuperPushDocumentation { throw 'Super Push stopped: local work contains more than documentation.' }
+        Mock Get-SuperPushAppCredential {}
+        Mock Invoke-SuperPushGit {}
+        Mock Write-Host {}
+        { Invoke-SuperPush } | Should -Throw '*contains more than documentation*'
+        Should -Invoke Get-SuperPushAppCredential -Times 0 -Exactly
+        Should -Invoke Invoke-SuperPushGit -Times 0 -Exactly
     }
 
     It 'rejects parameters before any state or credential access' {

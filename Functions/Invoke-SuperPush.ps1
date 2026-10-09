@@ -298,6 +298,8 @@ function Test-FastForward {
 }
 
 function Get-SuperPushState {
+    param([switch]$AllowDivergence)
+
     Assert-SafeGitEnvironment
     $root = (Invoke-GitCommand -Arguments @('rev-parse', '--show-toplevel')).Output[-1]
     Assert-SafeGitConfig $root
@@ -321,7 +323,8 @@ function Get-SuperPushState {
     )).Output[-1]
 
     Assert-DistinctCommits $oldSha $newSha
-    if (-not (Test-FastForward $root $oldSha $newSha)) {
+    $fastForward = Test-FastForward $root $oldSha $newSha
+    if (-not $AllowDivergence -and -not $fastForward) {
         throw 'Local HEAD is not a fast-forward of remote main.'
     }
 
@@ -457,6 +460,45 @@ function Test-SuperPushDocumentationOnly {
     }
 
     $true
+}
+
+function Assert-SuperPushDocumentationOnly {
+    param([Parameter(Mandatory)][psobject]$State)
+
+    # Compare local work with its common ancestor, not with remote-only changes.
+    $base = (Invoke-GitCommand -Arguments @('-C', $State.Root, 'merge-base', $State.OldSha, $State.NewSha)).Output[-1]
+    $local = [pscustomobject]@{ Root = $State.Root; OldSha = $base; NewSha = $State.NewSha }
+    if (-not (Test-SuperPushDocumentationOnly $local)) {
+        throw 'Super Push stopped: local work contains more than documentation (or no publishable docs). Use the normal pull-request workflow.'
+    }
+    # Code added and reverted still travels in the pushed history. Reject it too.
+    $commits = (Invoke-GitCommand -Arguments @('-C', $State.Root, 'rev-list', '--reverse', "$($State.OldSha)..$($State.NewSha)")).Output
+    foreach ($commit in $commits) {
+        $parents = ((Invoke-GitCommand -Arguments @('-C', $State.Root, 'rev-list', '--parents', '-n', '1', $commit)).Output[-1]).Split(' ')
+        if ($parents.Count -ne 2 -or -not (Test-SuperPushDocumentationOnly ([pscustomobject]@{
+            Root = $State.Root; OldSha = $parents[1]; NewSha = $commit
+        }))) {
+            throw 'Super Push stopped: outgoing history contains more than documentation or a merge commit. Use the normal pull-request workflow.'
+        }
+    }
+}
+
+function Sync-SuperPushDocumentation {
+    param([Parameter(Mandatory)][psobject]$State)
+
+    Assert-SuperPushDocumentationOnly $State
+    $branch = Invoke-GitCommand -Arguments @('-C', $State.Root, 'symbolic-ref', '-q', 'HEAD') -AllowFailure
+    if ($branch.ExitCode -eq 1) {
+        # The native Pi approval is bound to this exact SHA. Never rewrite it.
+        if (-not (Test-FastForward $State.Root $State.OldSha $State.NewSha)) {
+            throw 'Super Push stopped: detached approved snapshot is stale; rebase docs on an attached branch before fresh approval.'
+        }
+        return
+    }
+    if ($branch.ExitCode -ne 0) { throw 'Could not determine the current branch.' }
+    Write-Host 'Docs-only change: running git pull origin main --rebase.'
+    Invoke-GitCommand -Arguments @('-C', $State.Root, '-c', 'core.hooksPath=/dev/null',
+        'pull', 'origin', 'main', '--rebase', '--no-autostash') | Out-Null
 }
 
 function Assert-UnchangedState {
@@ -817,10 +859,13 @@ function Invoke-SuperPush {
     Performs one deliberately confirmed fast-forward push of local HEAD to Crisp main.
 
     .DESCRIPTION
-    Uses the dedicated selected-repository GitHub App after immutable preflight evidence
-    and exact interactive confirmation. Reads its App credential from the fixed
+    Uses the dedicated selected-repository GitHub App after docs-only checks
+    and immutable preflight evidence. Reads its App credential from the fixed
     Automation vault using OP_SERVICE_ACCOUNT_TOKEN, with no desktop 1Password
-    fallback. The cmdlet accepts no custom parameters.
+    fallback. Only documentation changes are allowed. On an attached branch,
+    pulls origin main with --rebase before checking the final push snapshot.
+    Detached approved snapshots are checked but never rewritten.
+    The cmdlet accepts no custom parameters.
 
     .EXAMPLE
     Invoke-SuperPush
@@ -847,11 +892,14 @@ function Invoke-SuperPush {
     $revocationConfirmed = $false
     $diagnosticPath = $null
     try {
+        $initial = Get-SuperPushState -AllowDivergence
+        $script:SuperPushDiagnostics.Phase = 'docs-rebase'
+        Sync-SuperPushDocumentation $initial
+        $script:SuperPushDiagnostics.Phase = 'preflight'
         $confirmed = Get-SuperPushState
+        Assert-SuperPushDocumentationOnly $confirmed
         $script:SuperPushDiagnostics.Phase = 'evidence'
         Show-SuperPushEvidence $confirmed
-        $script:SuperPushDiagnostics.Phase = 'confirmation'
-        if (-not (Test-SuperPushDocumentationOnly $confirmed)) { Confirm-SuperPush }
         $script:SuperPushDiagnostics.Phase = 'pre-credential'
         $beforeCredential = Get-SuperPushState
         Assert-UnchangedState $confirmed $beforeCredential
