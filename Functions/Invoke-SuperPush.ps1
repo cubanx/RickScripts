@@ -147,8 +147,7 @@ function Invoke-GitCommand {
         [Parameter(Mandatory)]
         [string[]]$Arguments,
 
-        [switch]$AllowFailure,
-        [switch]$OmitOutput
+        [switch]$AllowFailure
     )
 
     $command = Protect-SuperPushText ("git " + ($Arguments -join ' '))
@@ -164,8 +163,8 @@ function Invoke-GitCommand {
     # Configuration inspection can return unknown credentials; do not retain
     # its values. The command and exit status still identify the rejected gate.
     $sensitiveConfig = $Arguments -contains '--get-regexp'
-    $stdout = if ($OmitOutput) { '[output omitted]' } elseif ($sensitiveConfig) { '[configuration values omitted]' } else { Protect-SuperPushText $result.Stdout }
-    $stderr = if ($OmitOutput) { '[output omitted]' } else { Protect-SuperPushText $result.Stderr }
+    $stdout = if ($sensitiveConfig) { '[configuration values omitted]' } else { Protect-SuperPushText $result.Stdout }
+    $stderr = Protect-SuperPushText $result.Stderr
     Add-SuperPushDiagnostic "Git Exit=$($result.ExitCode) stdout: $stdout"
     Add-SuperPushDiagnostic "Git Exit=$($result.ExitCode) stderr: $stderr"
     if ($result.ExitCode -ne 0 -and -not $AllowFailure) {
@@ -326,21 +325,14 @@ function Get-SuperPushState {
         throw 'Local HEAD is not a fast-forward of remote main.'
     }
 
-    $state = [pscustomobject]@{
+    [pscustomobject]@{
         Repository = $repository
         Root = $root
         Origin = $origin
         TargetRef = $script:SuperPushRef
         OldSha = $oldSha
         NewSha = $newSha
-        ReceiptFingerprint = ''
     }
-    $receipt = Get-SuperPushCandidateReceipt $state
-    if ($receipt) {
-        $gitDirectory = (Invoke-GitCommand -Arguments @('-C', $root, 'rev-parse', '--absolute-git-dir')).Output[-1]
-        $state.ReceiptFingerprint = (Get-FileHash -LiteralPath (Join-Path $gitDirectory 'super-push-candidate.json') -Algorithm SHA256).Hash
-    }
-    $state
 }
 
 function Update-SuperPushTrackingRef {
@@ -388,13 +380,6 @@ function Show-SuperPushEvidence {
         $State.OldSha, $State.NewSha
     )).Output | ForEach-Object { Write-Host (Protect-SuperPushText $_) }
     Write-Host ''
-}
-
-function Show-SuperPushCandidatePatch {
-    param([Parameter(Mandatory)][psobject]$State)
-    Write-Host 'Candidate patch:'
-    (Invoke-GitCommand -Arguments @('-C', $State.Root, 'diff', '--no-ext-diff', '--no-textconv',
-        $State.OldSha, $State.NewSha, '--') -OmitOutput).Output | ForEach-Object { Write-Host (Protect-SuperPushText $_) }
 }
 
 function Get-SuperPushConfirmation {
@@ -480,11 +465,8 @@ function Assert-UnchangedState {
         [Parameter(Mandatory)][psobject]$After
     )
 
-    foreach ($property in 'Repository', 'Root', 'Origin', 'TargetRef', 'OldSha', 'NewSha', 'ReceiptFingerprint') {
-        $beforeValue = $Before.PSObject.Properties[$property]
-        $afterValue = $After.PSObject.Properties[$property]
-        if (($null -ne $beforeValue) -ne ($null -ne $afterValue) -or
-            ($null -ne $beforeValue -and $beforeValue.Value -cne $afterValue.Value)) {
+    foreach ($property in 'Repository', 'Root', 'Origin', 'TargetRef', 'OldSha', 'NewSha') {
+        if ($Before.$property -cne $After.$property) {
             throw "Super Push preflight changed at $property; start a fresh invocation."
         }
     }
@@ -838,18 +820,13 @@ function Invoke-SuperPush {
     Uses the dedicated selected-repository GitHub App after immutable preflight evidence
     and exact interactive confirmation. Reads its App credential from the fixed
     Automation vault using OP_SERVICE_ACCOUNT_TOKEN, with no desktop 1Password
-    fallback. On a source branch, explicitly selected TaskCommit SHAs are replayed
-    in an isolated detached worktree; non-docs preparation requires ValidationCommand.
-    Detached candidates are never rewritten, including fixed no-argument broker calls.
+    fallback. The cmdlet accepts no custom parameters.
 
     .EXAMPLE
     Invoke-SuperPush
     #>
     [CmdletBinding()]
-    param(
-        [string[]]$TaskCommit,
-        [string[]]$ValidationCommand
-    )
+    param()
 
     $previousDiagnostics = $script:SuperPushDiagnostics
     $script:SuperPushDiagnostics = @{
@@ -869,24 +846,12 @@ function Invoke-SuperPush {
     $pushAttempted = $false
     $revocationConfirmed = $false
     $diagnosticPath = $null
-    $prepared = $null
-    $candidateLocation = $false
     try {
-        $script:SuperPushDiagnostics.Phase = 'preparation'
-        $prepared = Initialize-SuperPushInvocation -TaskCommit $TaskCommit -ValidationCommand $ValidationCommand
-        if ($prepared) {
-            Write-Host "Prepared candidate retained at: $($prepared.Root)"
-            Push-Location -LiteralPath $prepared.Root
-            $candidateLocation = $true
-        }
-        $script:SuperPushDiagnostics.Phase = 'preflight'
         $confirmed = Get-SuperPushState
-        Assert-SuperPushCandidateValidation -State $confirmed -ValidationCommand $ValidationCommand
         $script:SuperPushDiagnostics.Phase = 'evidence'
         Show-SuperPushEvidence $confirmed
-        if ($prepared) { Show-SuperPushCandidatePatch $confirmed }
         $script:SuperPushDiagnostics.Phase = 'confirmation'
-        if (-not (Test-SuperPushCandidateDocumentationOnly $confirmed)) { Confirm-SuperPush }
+        if (-not (Test-SuperPushDocumentationOnly $confirmed)) { Confirm-SuperPush }
         $script:SuperPushDiagnostics.Phase = 'pre-credential'
         $beforeCredential = Get-SuperPushState
         Assert-UnchangedState $confirmed $beforeCredential
@@ -976,7 +941,6 @@ function Invoke-SuperPush {
             $failure = if ($failure) { "$failure $retentionFailure" } else { $retentionFailure }
         }
         finally {
-            if ($candidateLocation) { Pop-Location }
             $script:SuperPushDiagnostics.Secrets.Clear()
             $script:SuperPushDiagnostics = $previousDiagnostics
         }

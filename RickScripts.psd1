@@ -45,7 +45,6 @@
         'Save-DotfilesChanges',
         'Close-CompletedOpenSpec',
         'Invoke-SuperPush',
-        'New-SuperPushCandidate',
         'Get-OpenSpecStatus',
         'Add-TemporaryAtlasIpAccess',
         'Remove-TemporaryAtlasIpAccess'
