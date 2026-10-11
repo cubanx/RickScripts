@@ -462,24 +462,33 @@ function Test-SuperPushDocumentationOnly {
     $true
 }
 
-function Assert-SuperPushDocumentationOnly {
+function Test-SuperPushDocumentationHistory {
     param([Parameter(Mandatory)][psobject]$State)
 
     # Compare local work with its common ancestor, not with remote-only changes.
     $base = (Invoke-GitCommand -Arguments @('-C', $State.Root, 'merge-base', $State.OldSha, $State.NewSha)).Output[-1]
     $local = [pscustomobject]@{ Root = $State.Root; OldSha = $base; NewSha = $State.NewSha }
     if (-not (Test-SuperPushDocumentationOnly $local)) {
-        throw 'Super Push stopped: local work contains more than documentation (or no publishable docs). Use the normal pull-request workflow.'
+        return $false
     }
-    # Code added and reverted still travels in the pushed history. Reject it too.
+    # Code added and reverted still travels in the pushed history. Require confirmation too.
     $commits = (Invoke-GitCommand -Arguments @('-C', $State.Root, 'rev-list', '--reverse', "$($State.OldSha)..$($State.NewSha)")).Output
     foreach ($commit in $commits) {
         $parents = ((Invoke-GitCommand -Arguments @('-C', $State.Root, 'rev-list', '--parents', '-n', '1', $commit)).Output[-1]).Split(' ')
         if ($parents.Count -ne 2 -or -not (Test-SuperPushDocumentationOnly ([pscustomobject]@{
             Root = $State.Root; OldSha = $parents[1]; NewSha = $commit
         }))) {
-            throw 'Super Push stopped: outgoing history contains more than documentation or a merge commit. Use the normal pull-request workflow.'
+            return $false
         }
+    }
+    $true
+}
+
+function Assert-SuperPushDocumentationOnly {
+    param([Parameter(Mandatory)][psobject]$State)
+
+    if (-not (Test-SuperPushDocumentationHistory $State)) {
+        throw 'Super Push stopped: local work or outgoing history contains more than documentation (or no publishable docs).'
     }
 }
 
@@ -859,11 +868,12 @@ function Invoke-SuperPush {
     Performs one deliberately confirmed fast-forward push of local HEAD to Crisp main.
 
     .DESCRIPTION
-    Uses the dedicated selected-repository GitHub App after docs-only checks
-    and immutable preflight evidence. Reads its App credential from the fixed
-    Automation vault using OP_SERVICE_ACCOUNT_TOKEN, with no desktop 1Password
-    fallback. Only documentation changes are allowed. On an attached branch,
-    pulls origin main with --rebase before checking the final push snapshot.
+    Uses the dedicated selected-repository GitHub App after immutable preflight
+    evidence. Reads its App credential from the fixed Automation vault using
+    OP_SERVICE_ACCOUNT_TOKEN, with no desktop 1Password fallback. Docs-only
+    history skips typed confirmation and, on an attached branch, pulls origin
+    main with --rebase before checking the final push snapshot. Other history
+    requires typed confirmation and is never automatically rebased.
     Detached approved snapshots are checked but never rewritten.
     The cmdlet accepts no custom parameters.
 
@@ -893,13 +903,24 @@ function Invoke-SuperPush {
     $diagnosticPath = $null
     try {
         $initial = Get-SuperPushState -AllowDivergence
-        $script:SuperPushDiagnostics.Phase = 'docs-rebase'
-        Sync-SuperPushDocumentation $initial
+        $docsOnly = Test-SuperPushDocumentationHistory $initial
+        if ($docsOnly) {
+            $script:SuperPushDiagnostics.Phase = 'docs-rebase'
+            Sync-SuperPushDocumentation $initial
+        }
         $script:SuperPushDiagnostics.Phase = 'preflight'
         $confirmed = Get-SuperPushState
-        Assert-SuperPushDocumentationOnly $confirmed
+        if ($docsOnly) {
+            Assert-SuperPushDocumentationOnly $confirmed
+        } else {
+            Assert-UnchangedState $initial $confirmed
+        }
         $script:SuperPushDiagnostics.Phase = 'evidence'
         Show-SuperPushEvidence $confirmed
+        if (-not $docsOnly) {
+            $script:SuperPushDiagnostics.Phase = 'confirmation'
+            Confirm-SuperPush
+        }
         $script:SuperPushDiagnostics.Phase = 'pre-credential'
         $beforeCredential = Get-SuperPushState
         Assert-UnchangedState $confirmed $beforeCredential

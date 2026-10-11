@@ -28,18 +28,23 @@ can read the long-lived App key and mint GitHub installation tokens within the
 App's permissions; cmdlet confirmations do not constrain independent use of
 the key. No plaintext local projection is introduced.
 
-## Docs-only workflow
+## Documentation and authorized non-doc workflow
 
 ```powershell
 Import-Module RickScripts -Force
 Invoke-SuperPush
 ```
 
-The no-argument cmdlet allows only text documentation under `docs/` or
-`openspec/`, or the existing root README/CHANGELOG/CONTRIBUTING/SECURITY/LICENSE
-names. `AGENTS.md`, binary files, symlinks, submodules, code and merge commits
-stop before pulling or accessing App credentials. Every outgoing commit is
+The no-argument cmdlet skips typed confirmation only for text documentation
+under `docs/` or `openspec/`, or the existing root
+README/CHANGELOG/CONTRIBUTING/SECURITY/LICENSE names. Every outgoing commit is
 checked, so code added and later reverted is not treated as docs-only.
+`AGENTS.md`, binary files, symlinks, submodules, code and merge commits take the
+non-doc path: display the exact candidate evidence, then require typing
+`Approved` in an interactive terminal before App credential access. Denied or
+cancelled confirmation stops without credential access or a push.
+Both paths still authenticate to GitHub using the App; docs-only means no
+internal human authorization prompt, not anonymous publication.
 
 On a clean attached branch, it checks the local changes against their common
 ancestor with fetched main, then runs `git pull origin main --rebase` with
@@ -47,6 +52,10 @@ hooks and autostash disabled. Remote-only code changes do not disqualify local
 docs. It rechecks the resulting docs-only fast-forward snapshot before the
 existing credential and single non-force push flow. There is no commit selection,
 candidate worktree, validation command or receipt.
+
+Non-doc history is never automatically pulled or rebased. It must already be
+a clean fast-forward of fetched main; divergence stops before confirmation.
+The confirmed snapshot is rechecked before credentials and again before pushing.
 
 A failed pull/rebase stops without pushing. A conflict is left for you to
 resolve or cancel with `git rebase --abort`; no automatic push retry occurs.
@@ -67,6 +76,6 @@ still replaces ambient indexed configuration with its own isolated settings.
 
 The fixed Crisp main target, selected-repository scope, fast-forward checks,
 hook isolation, and short-lived token revocation remain unchanged. Non-docs
-changes now stop instead of asking for typed confirmation. Agent publication
+changes require typed confirmation; docs-only changes skip it. Agent publication
 still requires its separate native Super Push approval. Automation-vault access
 removes only runtime 1Password approval. No live push is needed for validation.

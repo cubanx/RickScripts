@@ -25,7 +25,7 @@ Describe 'Super Push retained diagnostics' {
         Mock Show-SuperPushEvidence {}
         Mock Sync-SuperPushDocumentation {}
         Mock Assert-SuperPushDocumentationOnly {}
-        Mock Test-SuperPushDocumentationOnly { $false }
+        Mock Test-SuperPushDocumentationHistory { $false }
         Mock Confirm-SuperPush {}
         Mock Get-SuperPushAppCredential { [pscustomobject]@{ ClientId = 'Iv1.defiant'; PrivateKey = 'fictional-defiant-private-key' } }
         Mock New-SuperPushToken {
@@ -203,7 +203,7 @@ Describe 'Super Push retained diagnostics' {
         $path = @($script:DiagnosticHost | Where-Object { $_.StartsWith('Diagnostics: ') })[0].Substring(13)
         [IO.File]::ReadAllText($path) | Should -Match 'Push=accepted.*Revoked=True'
         [IO.File]::ReadAllText($path) | Should -Not -Match 'Approved|fictional-defiant-private-key|fictional-defiant-installation'
-        Should -Invoke Confirm-SuperPush -Times 0 -Exactly
+        Should -Invoke Confirm-SuperPush -Times 1 -Exactly
         Should -Invoke Get-SuperPushState -Times 4 -Exactly
     }
     It 'reports revocation failure without raw provider exception text' {

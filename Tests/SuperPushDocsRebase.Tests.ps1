@@ -72,10 +72,12 @@ Describe 'docs-only Super Push pull/rebase' {
         }
         Mock Update-SuperPushTrackingRef {}
         Mock Remove-SuperPushToken {}
+        Mock Confirm-SuperPush { throw 'docs must not request confirmation' }
         Mock Write-Host {}
         Mock Save-SuperPushDiagnostics { '/tmp/fictional-defiant-diagnostics' }
         Push-Location $script:Local
         try { Invoke-SuperPush } finally { Pop-Location }
+        Should -Invoke Confirm-SuperPush -Times 0 -Exactly
         Should -Invoke Invoke-SuperPushGit -Times 1 -Exactly
         Should -Invoke Remove-SuperPushToken -Times 1 -Exactly
     }
@@ -162,5 +164,97 @@ Describe 'docs-only Super Push pull/rebase' {
         $state = Get-DefiantState
         { Sync-SuperPushDocumentation $state } | Should -Throw '*detached*'
         (& git -C $script:Local rev-parse HEAD) | Should -Be $state.NewSha
+    }
+
+    Context 'non-documentation authorization' {
+        BeforeEach {
+            Mock Get-CrispRepository { 'Crisp-Inc/defiant' }
+            Mock Get-SuperPushAppCredential { [pscustomobject]@{ ClientId = 'Iv1.defiant'; PrivateKey = 'fictional-defiant-key' } }
+            Mock New-SuperPushToken {
+                [pscustomobject]@{ token = 'fictional-defiant-token'; expires_at = '2099-01-01T00:00:00Z'; repository_selection = 'selected'; permissions = [pscustomobject]@{ contents = 'write' }; repositories = @([pscustomobject]@{ full_name = 'Crisp-Inc/defiant' }); installation_id = 1701 }
+            }
+            Mock Confirm-SuperPush {}
+            Mock Invoke-SuperPushGit {
+                param($State)
+                $State.NewSha | Should -Be (& git -C $script:Local rev-parse HEAD)
+                Test-FastForward $State.Root $State.OldSha $State.NewSha | Should -BeTrue
+            }
+            Mock Update-SuperPushTrackingRef {}
+            Mock Remove-SuperPushToken {}
+            Mock Write-Host {}
+            Mock Save-SuperPushDiagnostics { '/tmp/fictional-defiant-diagnostics' }
+        }
+
+        It 'authorizes <Kind> history without rewriting the candidate' -ForEach @(
+            @{ Kind = 'code' }, @{ Kind = 'mixed' }, @{ Kind = 'reverted-code' }
+        ) {
+            Set-Content "$script:Local/engine.txt" 'warp drive'
+            if ($Kind -eq 'mixed') { Set-Content "$script:Local/docs/defiant.md" 'warp nine' }
+            & git -C $script:Local commit --quiet -am 'local code'
+            if ($Kind -eq 'reverted-code') {
+                Set-Content "$script:Local/engine.txt" 'impulse'
+                Set-Content "$script:Local/docs/defiant.md" 'warp nine'
+                & git -C $script:Local commit --quiet -am 'revert code and add docs'
+            }
+            $script:Candidate = & git -C $script:Local rev-parse HEAD
+            $remoteBefore = & git --git-dir=$script:Remote rev-parse main
+            Mock Confirm-SuperPush {
+                Should -Invoke Get-SuperPushAppCredential -Times 0 -Exactly
+                Should -Invoke Write-Host -Times 1 -Exactly -ParameterFilter { ($Object -join ' ') -like '*Candidate:*' }
+            }
+            Push-Location $script:Local
+            try { Invoke-SuperPush } finally { Pop-Location }
+            Should -Invoke Confirm-SuperPush -Times 1 -Exactly
+            Should -Invoke Invoke-SuperPushGit -Times 1 -Exactly -ParameterFilter { $State.NewSha -eq $script:Candidate }
+            Should -Invoke Remove-SuperPushToken -Times 1 -Exactly
+            (& git -C $script:Local rev-parse HEAD) | Should -Be $script:Candidate
+            (& git --git-dir=$script:Remote rev-parse main) | Should -Be $remoteBefore
+        }
+
+        It 'stops on denied or cancelled authorization before credentials' -ForEach @(
+            @{ Failure = 'Super Push confirmation did not match.' },
+            @{ Failure = 'Super Push confirmation cancelled.' }
+        ) {
+            Set-Content "$script:Local/engine.txt" 'warp drive'
+            & git -C $script:Local commit --quiet -am 'local code'
+            $before = & git -C $script:Local rev-parse HEAD
+            $script:Denial = $Failure
+            Mock Confirm-SuperPush { throw $script:Denial }
+            Push-Location $script:Local
+            try { { Invoke-SuperPush } | Should -Throw '*Phase=confirmation*Attempted=False*confirmation*' } finally { Pop-Location }
+            Should -Invoke Get-SuperPushAppCredential -Times 0 -Exactly
+            Should -Invoke Invoke-SuperPushGit -Times 0 -Exactly
+            Should -Invoke Remove-SuperPushToken -Times 0 -Exactly
+            (& git -C $script:Local rev-parse HEAD) | Should -Be $before
+        }
+
+        It 'rejects candidate changes during confirmation before credentials' {
+            Set-Content "$script:Local/engine.txt" 'warp drive'
+            & git -C $script:Local commit --quiet -am 'local code'
+            Mock Confirm-SuperPush {
+                Set-Content "$script:Local/engine.txt" 'warp nine'
+                & git -C $script:Local commit --quiet -am 'candidate moved'
+            }
+            Push-Location $script:Local
+            try { { Invoke-SuperPush } | Should -Throw '*Phase=pre-credential*NewSha*' } finally { Pop-Location }
+            Should -Invoke Get-SuperPushAppCredential -Times 0 -Exactly
+            Should -Invoke Invoke-SuperPushGit -Times 0 -Exactly
+        }
+
+        It 'does not automatically rebase divergent non-doc history or ask to push it' {
+            Set-Content "$script:Local/engine.txt" 'warp drive'
+            & git -C $script:Local commit --quiet -am 'local code'
+            $before = & git -C $script:Local rev-parse HEAD
+            Set-Content "$script:Other/docs/defiant.md" 'warp seven'
+            & git -C $script:Other commit --quiet -am 'remote docs'
+            & git -C $script:Other push --quiet origin main
+            Push-Location $script:Local
+            try { { Invoke-SuperPush } | Should -Throw '*not a fast-forward*' } finally { Pop-Location }
+            Should -Invoke Confirm-SuperPush -Times 0 -Exactly
+            Should -Invoke Get-SuperPushAppCredential -Times 0 -Exactly
+            Should -Invoke Invoke-SuperPushGit -Times 0 -Exactly
+            (& git -C $script:Local rev-parse HEAD) | Should -Be $before
+            (& git -C $script:Local status --porcelain) | Should -BeNullOrEmpty
+        }
     }
 }

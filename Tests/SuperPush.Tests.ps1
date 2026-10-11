@@ -559,7 +559,7 @@ Describe 'Invoke-SuperPush safety boundary' {
         $state = New-TestSuperPushState
         Mock Get-SuperPushState { $script:StateReads++; $state.PSObject.Copy() }
         Mock Show-SuperPushEvidence {}
-        Mock Test-SuperPushDocumentationOnly { $false }
+        Mock Test-SuperPushDocumentationHistory { $false }
         Mock Confirm-SuperPush {}
         Mock Get-SuperPushAppCredential { [pscustomobject]@{ ClientId = 'Iv1.defiant'; PrivateKey = 'fake-key' } }
         Mock New-SuperPushToken { New-TestSuperPushGrant }
@@ -574,15 +574,15 @@ Describe 'Invoke-SuperPush safety boundary' {
         $script:Pushes | Should -Be 1
         $script:TrackingRefreshes | Should -Be 1
         $script:Revocations | Should -Be 1
-        Should -Invoke Confirm-SuperPush -Times 0 -Exactly
-        Should -Invoke Sync-SuperPushDocumentation -Times 1 -Exactly
+        Should -Invoke Confirm-SuperPush -Times 1 -Exactly
+        Should -Invoke Sync-SuperPushDocumentation -Times 0 -Exactly
     }
 
     It 'skips only the internal confirmation for documentation-only changes' {
         $state = New-TestSuperPushState
         Mock Get-SuperPushState { $state.PSObject.Copy() }
         Mock Show-SuperPushEvidence {}
-        Mock Test-SuperPushDocumentationOnly { $true }
+        Mock Test-SuperPushDocumentationHistory { $true }
         Mock Confirm-SuperPush {}
         Mock Get-SuperPushAppCredential { [pscustomobject]@{ ClientId = 'Iv1.defiant'; PrivateKey = 'fake-key' } }
         Mock New-SuperPushToken { New-TestSuperPushGrant }
@@ -601,7 +601,7 @@ Describe 'Invoke-SuperPush safety boundary' {
         $state = New-TestSuperPushState
         Mock Get-SuperPushState { $state.PSObject.Copy() }
         Mock Show-SuperPushEvidence {}
-        Mock Test-SuperPushDocumentationOnly { $false }
+        Mock Test-SuperPushDocumentationHistory { $false }
         Mock Confirm-SuperPush {}
         Mock Get-SuperPushAppCredential { [pscustomobject]@{ ClientId = 'Iv1.defiant'; PrivateKey = 'fake-key' } }
         Mock New-SuperPushToken { New-TestSuperPushGrant }
@@ -619,7 +619,7 @@ Describe 'Invoke-SuperPush safety boundary' {
         $state = New-TestSuperPushState
         Mock Get-SuperPushState { $state.PSObject.Copy() }
         Mock Show-SuperPushEvidence {}
-        Mock Test-SuperPushDocumentationOnly { $false }
+        Mock Test-SuperPushDocumentationHistory { $false }
         Mock Confirm-SuperPush {}
         Mock Get-SuperPushAppCredential { [pscustomobject]@{ ClientId = 'Iv1.defiant'; PrivateKey = 'fake-key' } }
         Mock New-SuperPushToken { New-TestSuperPushGrant }
@@ -636,7 +636,7 @@ Describe 'Invoke-SuperPush safety boundary' {
         $state = New-TestSuperPushState
         Mock Get-SuperPushState { $state.PSObject.Copy() }
         Mock Show-SuperPushEvidence {}
-        Mock Test-SuperPushDocumentationOnly { $false }
+        Mock Test-SuperPushDocumentationHistory { $false }
         Mock Confirm-SuperPush {}
         Mock Get-SuperPushAppCredential { [pscustomobject]@{ ClientId = 'Iv1.defiant'; PrivateKey = 'fake-key' } }
         Mock New-SuperPushToken { New-TestSuperPushGrant }
@@ -647,13 +647,15 @@ Describe 'Invoke-SuperPush safety boundary' {
         { Invoke-SuperPush } | Should -Throw '*Push=accepted*Revoked=False*GitHub expiry is 2099-01-01T00:00:00Z*'
     }
 
-    It 'stops non-docs before credential access or publication' {
+    It 'stops non-docs on denied confirmation before credential access or publication' {
         Mock Get-SuperPushState { New-TestSuperPushState }
-        Mock Sync-SuperPushDocumentation { throw 'Super Push stopped: local work contains more than documentation.' }
+        Mock Test-SuperPushDocumentationHistory { $false }
+        Mock Confirm-SuperPush { throw 'Super Push confirmation did not match.' }
+        Mock Show-SuperPushEvidence {}
         Mock Get-SuperPushAppCredential {}
         Mock Invoke-SuperPushGit {}
         Mock Write-Host {}
-        { Invoke-SuperPush } | Should -Throw '*contains more than documentation*'
+        { Invoke-SuperPush } | Should -Throw '*Phase=confirmation*confirmation did not match*'
         Should -Invoke Get-SuperPushAppCredential -Times 0 -Exactly
         Should -Invoke Invoke-SuperPushGit -Times 0 -Exactly
     }
