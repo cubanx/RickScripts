@@ -1,4 +1,4 @@
-# Private helpers for Remove-OldOrcaWorktree. Raw command output never enters diagnostics.
+# Private helpers for Remove-OrcaWorktrees. Raw command output never enters diagnostics.
 function Invoke-OrcaReapCommand {
     param([string]$Executable, [string[]]$Arguments, [int]$TimeoutSeconds = 60)
     $start = [System.Diagnostics.ProcessStartInfo]::new()
@@ -87,6 +87,21 @@ function Get-OrcaReapPathMissing {
     }
 }
 
+function Get-OrcaReapLockState {
+    param([string]$Path, [int]$TimeoutSeconds = 60)
+    $text = Invoke-OrcaReapCommand -Executable 'git' -Arguments @('-C', $Path,
+        'worktree', 'list', '--porcelain', '-z') -TimeoutSeconds $TimeoutSeconds
+    # NUL-delimited output preserves literal spaces, newlines and quoted paths.
+    $records = @($text -split "`0`0" | Where-Object { $_ })
+    $matches = @($records | Where-Object { ($_ -split "`0")[0] -ceq "worktree $Path" })
+    if ($matches.Count -ne 1 -or $matches[0] -ceq $records[0]) { throw 'GitUnverified' }
+    $locked = @($matches[0] -split "`0" | Where-Object { $_ -eq 'locked' -or $_.StartsWith('locked ') })
+    [pscustomobject]@{
+        IsLocked = $locked.Count -gt 0
+        LockReason = if ($locked.Count) { $locked[0] -replace '^locked ?', '' } else { '' }
+    }
+}
+
 function Get-OrcaReapDiagnostic {
     param($ErrorRecord)
     # Allow only our fixed reason codes; never copy provider, Git, hook or JSON error text.
@@ -94,7 +109,7 @@ function Get-OrcaReapDiagnostic {
     $codes = @('CommandTimeout', 'MalformedResponse', 'InvalidResponse', 'IncompleteCoverage',
         'IdentityUnverified', 'IdentityChanged', 'ProtectedWorktree', 'TimestampInvalid',
         'RecentlyActive', 'ActivityUnverified', 'ActiveResources', 'GitUnverified',
-        'RuntimeChanged', 'RemovalUnverified', 'PathChanged', 'PathUnverified')
+        'RuntimeChanged', 'RemovalUnverified', 'PathChanged', 'PathUnverified', 'WorktreeLocked')
     if ($reason -in $codes -or $reason -match '^CommandExit:-?\d+$') { return $reason }
     return "CheckFailed:$($ErrorRecord.Exception.GetType().Name)"
 }
@@ -151,12 +166,13 @@ function Get-OrcaReapGitSafety {
     $registrations = (Invoke-ReapGit @('worktree', 'list', '--porcelain')) -split '(?:\r?\n){2}'
     if ($registrations.Count -lt 2 -or $registrations[0] -match "(?m)^worktree $([regex]::Escape($root))\r?$") { throw 'GitUnverified' }
     $registration = @($registrations | Where-Object { $_ -match "(?m)^worktree $([regex]::Escape($root))\r?$" })
-    if ($registration.Count -ne 1 -or $registration[0] -match '(?m)^(locked|prunable|bare|detached)' -or
+    if ($registration.Count -eq 1 -and $registration[0] -match '(?m)^locked(?: |\r?$)') { throw 'WorktreeLocked' }
+    if ($registration.Count -ne 1 -or $registration[0] -match '(?m)^(prunable|bare|detached)' -or
         $registration[0] -notmatch "(?m)^HEAD $head\r?$" -or
         $registration[0] -notmatch "(?m)^branch $([regex]::Escape($branch))\r?$") { throw 'GitUnverified' }
     # Local file protection is delegated to Orca's guarded removal and archive hooks.
     if ((Invoke-ReapGit @('ls-files', '--stage')) -match '(?m)^160000 ') { throw 'GitUnverified' }
-    if ((Invoke-ReapGit @('stash', 'list', '--format=%H')).Trim()) { throw 'GitUnverified' }
+    # Stashes are repository-wide and survive linked-worktree removal; they do not gate it.
     # Commit ancestry, reflogs, and remote/base refs deliberately do not gate removal.
     # Detect concurrent Git changes during the above checks.
     if ((Invoke-ReapGit @('rev-parse', 'HEAD')).Trim() -cne $head -or
@@ -215,4 +231,10 @@ function Get-OrcaReapMetadataAssessment {
         if ($Activity.isPinned -is [bool] -and $Activity.isPinned) { $checks.Unpinned = $false }
     }
     [pscustomobject]@{ Checks = $checks; ProtectionReasons = @($protection.ToArray()) }
+}
+
+# Keep the batch approval after presentation and before fresh per-worktree checks.
+function Confirm-OrcaReapRemoval {
+    param([System.Management.Automation.PSCmdlet]$Cmdlet, [string]$Target, [string]$Action)
+    $Cmdlet.ShouldProcess($Target, $Action)
 }

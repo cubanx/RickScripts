@@ -1,33 +1,42 @@
 # Reap old Orca worktrees
 
-`Remove-OldOrcaWorktree` is an exported advanced-function cmdlet. Requires PowerShell 7+,
+`Remove-OrcaWorktrees` is an exported advanced-function cmdlet. Requires PowerShell 7+,
 Git, and a running local Orca runtime. CLI discovery/schema was checked against Orca
 1.4.222 and its bundled `orca-cli` guide. Unknown/missing fields fail closed.
 
-**Default invocation deletes safe candidates. Preview with `-WhatIf` first.**
+**Default invocation shows only eligible candidates, then asks for batch confirmation
+before deletion. `-All` shows every worktree and is strictly read-only.**
 
 ```powershell
 # During review, load this checkout explicitly (it is not installed on main yet).
 Import-Module ./RickScripts.psd1 -Force
-$result = Remove-OldOrcaWorktree -WhatIf
+$result = Remove-OrcaWorktrees -WhatIf
 $result  # Safety-check matrix, using each worktree's final folder name.
 $result.Results  # The same checks, plus the per-worktree outcome/status.
 $result.Results | Select-Object Worktree, Path, Reason  # Full diagnostic details.
 
-# After reviewing the preview: delete safe candidates, default threshold 14 days.
-$result = Remove-OldOrcaWorktree
+# Show eligible candidates, then offer deletion; default threshold is 14 days.
+$result = Remove-OrcaWorktrees
 
-# Override the inactivity threshold on the command line.
-Remove-OldOrcaWorktree -InactiveDays 30 -WhatIf
-Remove-OldOrcaWorktree -InactiveDays 7 -WhatIf
+# Read-only inventory, including protected/blocked worktrees and their reasons.
+Remove-OrcaWorktrees -All
+Remove-OrcaWorktrees -All -InactiveDays 30
+
+# Override the inactivity threshold on either inspection path.
+Remove-OrcaWorktrees -InactiveDays 30 -WhatIf
+Remove-OrcaWorktrees -InactiveDays 7 -WhatIf
 
 # Preview an explicitly requested Orca force override.
-Remove-OldOrcaWorktree -Force -WhatIf
-# Remove-OldOrcaWorktree -Force  # DESTRUCTIVE: may permanently lose local files.
+Remove-OrcaWorktrees -Force -WhatIf
+# Remove-OrcaWorktrees -Force  # DESTRUCTIVE: may permanently lose local files.
 ```
 
-After installation, reload with `Import-Module RickScripts -Force`. `-Confirm` requests
-per-candidate confirmation; `-WhatIf` always prevents removal, even with `-Force`.
+After installation, reload with `Import-Module RickScripts -Force`. Deletion uses high-impact `ShouldProcess` batch confirmation after the list is displayed.
+`-Confirm` requests confirmation; `-Confirm:$false` explicitly suppresses it for cleanup.
+`-WhatIf` always prevents removal, even with `-Force`. `-All` never offers or performs
+deletion, even with `-Force -Confirm:$false`. It uses the same eligibility checks,
+`-InactiveDays`, CLI selection, limit and timeout as the default path. `-All` cannot be
+combined with `-Unlock`; unlocking remains a separate operation.
 
 ## Spectre.Console display (optional)
 
@@ -37,9 +46,9 @@ Install it explicitly; this cmdlet never installs dependencies:
 
 ```powershell
 Install-Module PwshSpectreConsole -Scope CurrentUser
-$result = Remove-OldOrcaWorktree -WhatIf
+$result = Remove-OrcaWorktrees -WhatIf
 # Optional: disable rich output, including for unattended/script-only runs.
-# $result = Remove-OldOrcaWorktree -Spectre:$false -WhatIf
+# $result = Remove-OrcaWorktrees -Spectre:$false -WhatIf
 $result.Results | ConvertTo-Json -Depth 8
 ```
 
@@ -52,9 +61,8 @@ summary's default view is suppressed after successful Spectre rendering to avoid
 a duplicate table; inspect `$result.Results` for details. `SpectreRendered` records
 presentation success only, not deletion success. A rendering failure warns and retains
 the summary/default view without repeating removal. Worktree names and explanations
-are escaped as literal text. No per-worktree explanations, legend, or footer are printed
-below the table. Inspect `$result.Results` for status/reason details and the summary for
-counts and coverage. An empty display reports no visible rows, or incomplete coverage
+are escaped as literal text. In `-All` mode, the rich table also includes per-worktree reasons. Inspect `$result.Results` for status/reason details and the summary for
+counts and coverage. An empty default display reports no eligible rows, or incomplete coverage
 when applicable. Safety warnings and WhatIf messages remain; no safety checks or
 `-Force`/`-WhatIf` semantics change.
 
@@ -75,7 +83,7 @@ For existing directories, the following **all** must be established:
   with other worktrees do not.
 - Stable Orca instance identity, path, host, branch, HEAD, base, and timestamp match the
   listing and `show`. The checkout is registered in Git, not main/locked/prunable/detached.
-- Stashes and submodules still block removal. Git registration, current HEAD/branch,
+- Submodules still block removal; repository-wide stashes do not. Git registration, current HEAD/branch,
   and path are verified locally; no remote access or base-ref validation is required.
 - Local files are **not checked by this cmdlet**: tracked changes, untracked files, and
   ignored files do not gate candidate selection. File protection is delegated to Orca's
@@ -96,13 +104,14 @@ commits have been backed up or merged.
 These indicators do not prove that explicit Sleep was used. No `isArchived` inference is
 made. Checks cover Orca-visible resources, not arbitrary external processes using a folder.
 
-## Automatic missing-directory cleanup
+## Missing-directory cleanup
 
 Confirmed missing directories are candidates for deregistration on every run, regardless
 of age or missing/invalid activity timestamps. No Git inspection is attempted for an absent
 checkout. Identity and matching activity metadata, local scope, inactivity, protection flags,
 no children, complete terminal listings, and empty browser-tab listings are still required.
-Main, pinned, bare, active, or unverifiable entries are never automatically cleaned up.
+Main, pinned, bare, active, or unverifiable entries are never eligible. Missing-directory
+deregistration requires the same batch approval; `-All` only reports these candidates.
 
 Absence is established with filesystem attributes and an existing directory ancestor, not
 `Test-Path`/`Exists` (which can hide errors). Existing files and dangling symlinks are not
@@ -150,8 +159,9 @@ The returned summary contains `CandidateCount` (initially eligible, including su
 skipped/deleted/failed candidates), `SkippedCount`, `DeletedCount`, `FailedCount`,
 `CoverageComplete`, `CoverageReason`, `HostIds`, `OmittedHostIds`, and per-item
 `Results` (including each row's `MissingPath` flag). Both displays use the final folder name for the `Worktree` label, matching
-`Results`. Protected main/root checkouts are hidden from the summary tables but retained
-in structured `Results` and the skipped count.
+`Results`. `VisibleResults` selects the displayed rows: initially eligible candidates by
+default (including their later deletion/revalidation outcomes), or every row with `-All`.
+Structured `Results` always retains all diagnostic rows and the skipped count.
 A folder named `worktree` stays `worktree`; it does not imply a default branch.
 This changes presentation only; full paths, identities, and branch validation remain
 unchanged.
@@ -181,14 +191,13 @@ safety guarantee. Readiness is cleared on revalidation/removal failure.
 Structured `Results[].Checks` retains true/false/null values; `Explanation` and diagnostic
 `Reason` retain details. Protection explanations name the actual blocker (pinned, bare,
 child worktrees, or unverified metadata), not a combined list of possibilities. Protected
-main-worktree rows skipped as `ProtectedWorktree` are omitted from the summary tables,
-but remain in the skipped count and structured `Results` with `IsMainWorktree`.
-They are never eligible for deletion. Main rows with failed/unverified checks remain
-visible, as do pinned and other blocked worktrees. Visible rows stay alphabetized. `Results` also has a matrix view. Full `Path`, `Id`, `Status`,
-and all structured properties remain intact for scripts/JSON.
-Names may repeat across repositories; use `Path`/`Id` to distinguish those rows. This is
-presentation only: selection, validation, ShouldProcess confirmation targets, and removal
-still use the full path/stable identity. Save the result first (`$result = ...`) to inspect
+main-worktree rows and other ineligible worktrees are omitted from the default list,
+but are shown with `-All` and always remain in structured `Results` with `IsMainWorktree`.
+They are never made eligible by display flags. Visible rows stay alphabetized. `Results`
+also has a matrix view. Full `Path`, `Id`, `Status`, and all structured properties remain
+intact for scripts/JSON. Names may repeat across repositories; use `Path`/`Id` to distinguish
+those rows. Batch confirmation applies only to the displayed candidates; fresh validation
+and removal still use each full path/stable identity. Save the result first (`$result = ...`) to inspect
 its properties; do not pipe to `Format-Table` before exporting JSON or scripting against it.
 
 Candidate rows remain candidates under WhatIf/declined confirmation. Reasons
@@ -210,7 +219,7 @@ Example PowerShell job body, initially report-only:
 ```powershell
 $ErrorActionPreference = 'Stop'
 Import-Module '/absolute/path/to/RickScripts/RickScripts.psd1' -Force
-$r = Remove-OldOrcaWorktree -WhatIf -Confirm:$false
+$r = Remove-OrcaWorktrees -WhatIf -Confirm:$false
 $r | ConvertTo-Json -Depth 8 | Set-Content '/absolute/path/to/reap-summary.json'
 if (-not $r.CoverageComplete -or $r.FailedCount -gt 0) { exit 1 }
 # Remove -WhatIf only after reviewing scheduler-scope evidence and approving deletion.

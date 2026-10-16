@@ -17,22 +17,30 @@
                   $coverage = if ($summary.CoverageComplete) { 'complete local runtime listing' } else { "INCOMPLETE ($($summary.CoverageReason))" }
                   $lines.Add("Coverage: $coverage")
                   $lines.Add("Candidates: $($summary.CandidateCount) | Deleted: $($summary.DeletedCount) | Skipped: $($summary.SkippedCount) | Failed: $($summary.FailedCount)")
-                  $rows = @($summary.Results | Where-Object {
-                    -not ($_.IsMainWorktree -and $_.Status -eq 'Skipped' -and $_.Reason -eq 'ProtectedWorktree')
-                  } | Sort-Object Worktree)
+                  $rows = if ($summary.PSObject.Properties['VisibleResults']) { @($summary.VisibleResults | Sort-Object Worktree) }
+                    else { @($summary.Results | Where-Object {
+                      -not ($_.IsMainWorktree -and $_.Status -eq 'Skipped' -and $_.Reason -eq 'ProtectedWorktree')
+                    } | Sort-Object Worktree) }
                   if ($rows.Count -gt 0) {
                     $table = $rows | Select-Object Worktree,
                       @{Name='Age'; Expression={if ($_.Checks.OldEnough -eq $true) {'✅'} elseif ($_.Checks.AgeDays -is [int] -and $_.Checks.AgeDays -ge 0) {"$($_.Checks.AgeDays)d"} else {'❌'}}},
                       @{Name='Idle'; Expression={if ($_.Checks.Inactive -eq $true) {'✅'} else {'❌'}}},
                       @{Name='Unpinned'; Expression={if ($_.Checks.Unpinned -eq $true) {'✅'} else {'❌'}}},
                       @{Name='NoKids'; Expression={if ($_.Checks.NoChildren -eq $true) {'✅'} else {'❌'}}},
+                      @{Name='Lock'; Expression={if ($_.IsLocked -eq $true) {'🔒'} elseif ($_.IsLocked -eq $false) {'—'} else {'?'}}},
                       @{Name='Ready'; Expression={if ($_.Checks.Ready -eq $true) {'✅'} else {'❌'}}} |
                       Format-Table -AutoSize -Wrap | Out-String -Width 80
                     $lines.Add('')
                     $lines.Add($table.Trim())
+                    if ($summary.All) {
+                      foreach ($row in $rows) { $lines.Add("$($row.Worktree): $($row.Explanation)") }
+                    }
                   }
+                  if ($rows.Count -eq 0 -and $summary.CoverageComplete) { $lines.Add('No eligible worktrees. Use -All to inspect every worktree.') }
+                  if ($summary.All) { $lines.Add('Read-only inventory; deletion is disabled with -All.') }
                   $lines.Add('')
                   $lines.Add('✅ passed | Age in days = too recent | ❌ blocked or not verified. All green = eligible under selected checks.')
+                  $lines.Add('Lock: 🔒 kept | — unlocked | ? unverified. Use -Unlock to select locks to release.')
                   $lines.Add('Ready also requires identity, scope, Git and resource checks to pass.')
                   if ($summary.Force) {
                     $lines.Add('Force passes --force to Orca; local file safety is delegated to Orca and hooks.')
@@ -58,6 +66,7 @@
           <TableColumnHeader><Label>Idle</Label></TableColumnHeader>
           <TableColumnHeader><Label>Unpinned</Label></TableColumnHeader>
           <TableColumnHeader><Label>NoKids</Label></TableColumnHeader>
+          <TableColumnHeader><Label>Lock</Label></TableColumnHeader>
           <TableColumnHeader><Label>Ready</Label></TableColumnHeader>
           <TableColumnHeader><Label>Status</Label></TableColumnHeader>
         </TableHeaders>
@@ -70,6 +79,7 @@
               <TableColumnItem><ScriptBlock>if ($_.Checks.Inactive -eq $true) {'✅'} else {'❌'}</ScriptBlock></TableColumnItem>
               <TableColumnItem><ScriptBlock>if ($_.Checks.Unpinned -eq $true) {'✅'} else {'❌'}</ScriptBlock></TableColumnItem>
               <TableColumnItem><ScriptBlock>if ($_.Checks.NoChildren -eq $true) {'✅'} else {'❌'}</ScriptBlock></TableColumnItem>
+              <TableColumnItem><ScriptBlock>if ($_.IsLocked -eq $true) {'🔒'} elseif ($_.IsLocked -eq $false) {'—'} else {'?'}</ScriptBlock></TableColumnItem>
               <TableColumnItem><ScriptBlock>if ($_.Checks.Ready -eq $true) {'✅'} else {'❌'}</ScriptBlock></TableColumnItem>
               <TableColumnItem><PropertyName>Status</PropertyName></TableColumnItem>
             </TableColumnItems>

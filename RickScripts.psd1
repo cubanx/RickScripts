@@ -18,7 +18,7 @@
         'Open-ProjectFolder',
         'Copy-MergeRequest',
         'Get-GitWorktrees',
-        'Remove-OldOrcaWorktree',
+        'Remove-OrcaWorktrees',
         'Get-GitStash',
         'Remove-HistoryItem',
         'Remove-HistoryDuplicates',

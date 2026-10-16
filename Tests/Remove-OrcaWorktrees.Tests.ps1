@@ -1,9 +1,18 @@
 BeforeAll {
     . "$PSScriptRoot/../Common/OrcaReap.ps1"
     . "$PSScriptRoot/../Common/OrcaReapDisplay.ps1"
-    . "$PSScriptRoot/../Functions/Remove-OldOrcaWorktree.ps1"
+    . "$PSScriptRoot/../Functions/Remove-OrcaWorktrees.ps1"
 
     $script:RealPathProbe = (Get-Command Get-OrcaReapPathMissing).ScriptBlock
+    function fzf {
+        process { $script:PickerInput += $_ }
+        end {
+            if ($script:PickerChange) { & $script:PickerChange }
+            $global:LASTEXITCODE = if ($script:CancelPicker) { 130 } else { $script:PickerExit }
+            if ($script:InvalidSelection) { 'not a listed worktree' }
+            elseif (-not $script:CancelPicker) { $script:PickerInput }
+        }
+    }
 
     function New-ReapFixture {
         $script:Tree = [ordered]@{
@@ -24,6 +33,7 @@ BeforeAll {
         }
         $script:Scope = @{ hostIds = @('local'); omittedHostIds = @() }
         $script:Truncated = $false; $script:Total = 1
+        $script:ExtraTrees = @(); $script:ExtraActivity = @()
         $script:Calls = @(); $script:ShowCount = 0; $script:Change = $null
         $script:BadJson = $false; $script:RemoveFailure = $false; $script:Tabs = @()
         $script:GitSafe = $true; $script:Removed = $false
@@ -31,21 +41,29 @@ BeforeAll {
     }
 }
 
-Describe 'Remove-OldOrcaWorktree safety workflow' {
+Describe 'Remove-OrcaWorktrees safety workflow' {
     BeforeEach {
         New-ReapFixture
         Mock Initialize-OrcaReapSpectre {}
         Mock Show-OrcaReapSpectre {}
         Mock Get-OrcaReapPathMissing { $script:PathMissing }
+        $script:Locked = $false; $script:LockReason = 'Keep Quark'; $script:UnlockCalls = 0
+        $script:CancelPicker = $false; $script:PickerInput = @()
+        $script:PickerChange = $null; $script:PickerExit = 0; $script:InvalidSelection = $false
+        Mock Get-OrcaReapLockState { [pscustomobject]@{ IsLocked = $script:Locked; LockReason = $script:LockReason } }
         Mock Get-OrcaReapGitSafety { if (-not $script:GitSafe) { throw 'GitUnverified' }; [pscustomobject]@{ Verified = $true } }
         Mock Invoke-OrcaReapCommand {
             param($Executable, $Arguments)
             $command = $Arguments -join ' '
             $script:Calls += $command
             if ($script:BadJson) { return '{not-json secret=do-not-display' }
+            if ($Executable -eq 'git' -and $Arguments -contains 'unlock') {
+                $script:UnlockCalls++; $script:Locked = $false
+                return ''
+            }
             $result = switch -Wildcard ($command) {
-                'worktree list *' { @{ worktrees = @(if (-not $script:Removed -or $script:KeepRemovedListed) { $script:Tree }); hostScope = $script:Scope; totalCount = $(if ($script:Removed -and -not $script:KeepRemovedListed) { 0 } else { $script:Total }); truncated = $script:Truncated } }
-                'worktree ps *' { @{ worktrees = @($script:Activity); hostScope = $script:Scope; totalCount = $script:Total; truncated = $script:Truncated } }
+                'worktree list *' { @{ worktrees = @(if (-not $script:Removed -or $script:KeepRemovedListed) { $script:Tree }; $script:ExtraTrees); hostScope = $script:Scope; totalCount = $(if ($script:Removed -and -not $script:KeepRemovedListed) { 0 } else { $script:Total }) + $script:ExtraTrees.Count; truncated = $script:Truncated } }
+                'worktree ps *' { @{ worktrees = @($script:Activity) + $script:ExtraActivity; hostScope = $script:Scope; totalCount = $script:Total + $script:ExtraActivity.Count; truncated = $script:Truncated } }
                 'worktree show *' {
                     $script:ShowCount++
                     if ($script:ShowCount -gt 1 -and $script:Change) { & $script:Change }
@@ -64,6 +82,229 @@ Describe 'Remove-OldOrcaWorktree safety workflow' {
         }
     }
 
+    It 'shows only candidates before offering deletion, and declining leaves them untouched' {
+        $script:Presented = $false
+        Mock Show-OrcaReapSpectre {
+            param($Summary)
+            $Summary.VisibleResults.Count | Should -Be 1
+            $Summary.VisibleResults[0].Status | Should -Be 'Candidate'
+            $script:Presented = $true
+            $script:Removed | Should -BeFalse
+        }
+        Mock Confirm-OrcaReapRemoval {
+            $script:Presented | Should -BeTrue
+            $false
+        }
+        $r = Remove-OrcaWorktrees
+        $r.Results[0].Reason | Should -Be 'WhatIfOrDeclined'
+        $script:Removed | Should -BeFalse
+        Should -Invoke Confirm-OrcaReapRemoval -Times 1 -Exactly
+    }
+    It 'rechecks activity after accepting the offer rather than trusting the displayed list' {
+        Mock Confirm-OrcaReapRemoval {
+            $script:Activity.isActive = $true
+            $true
+        }
+        $r = Remove-OrcaWorktrees
+        $r.Results[0].Reason | Should -Be 'ActiveResources'
+        $r.Results[0].Checks.Ready | Should -BeFalse
+        $script:Removed | Should -BeFalse
+    }
+    It 'uses the requested command, limit and timeout in read-only inventory' {
+        Mock Confirm-OrcaReapRemoval { throw 'Unexpected approval' }
+        $r = Remove-OrcaWorktrees -All -OrcaCommand 'ds9-orca' -Limit 17 -TimeoutSeconds 23
+        $r.CandidateCount | Should -Be 1
+        Should -Invoke Invoke-OrcaReapCommand -Times 1 -Exactly -ParameterFilter {
+            $Executable -eq 'ds9-orca' -and ($Arguments -join ' ') -eq 'worktree list --limit 17 --json' -and $TimeoutSeconds -eq 23
+        }
+        Should -Invoke Confirm-OrcaReapRemoval -Times 0 -Exactly
+    }
+    It 'requires interactive confirmation by default in a real noninteractive PowerShell host' {
+        $fixture = Join-Path $TestDrive 'quark-inventory.json'
+        @{ Tree=$script:Tree; Activity=$script:Activity; Scope=$script:Scope } |
+            ConvertTo-Json -Depth 12 | Set-Content $fixture
+        $runner = Join-Path $TestDrive 'quark-preview.ps1'
+        $marker = Join-Path $TestDrive 'unexpected-removal.txt'
+        @'
+param($Root, $Fixture, $Marker)
+. "$Root/Common/OrcaReap.ps1"
+. "$Root/Common/OrcaReapDisplay.ps1"
+. "$Root/Functions/Remove-OrcaWorktrees.ps1"
+$f = Get-Content -Raw $Fixture | ConvertFrom-Json -AsHashtable
+function Initialize-OrcaReapSpectre {}
+function Show-OrcaReapSpectre { Write-Host 'QUARK_LIST_SHOWN' }
+function Get-OrcaReapPathMissing { $false }
+function Get-OrcaReapLockState { @{ IsLocked=$false; LockReason='' } }
+function Get-OrcaReapGitSafety { @{ Verified=$true } }
+function Invoke-OrcaReapCommand {
+    param($Executable, $Arguments)
+    $result = switch ("$($Arguments[0]) $($Arguments[1])") {
+        'worktree list' { @{worktrees=@($f.Tree); hostScope=$f.Scope; totalCount=1; truncated=$false} }
+        'worktree ps' { @{worktrees=@($f.Activity); hostScope=$f.Scope; totalCount=1; truncated=$false} }
+        'worktree show' { @{worktree=$f.Tree} }
+        'terminal list' { @{terminals=@(); hostScope=$f.Scope; totalCount=0; truncated=$false} }
+        'tab list' { @{tabs=@()} }
+        'worktree rm' { Set-Content $Marker 'unexpected removal'; throw 'Removal requested' }
+        default { throw 'Unexpected command' }
+    }
+    @{ok=$true; result=$result; _meta=@{runtimeId='ds9-runtime'}} | ConvertTo-Json -Depth 12 -Compress
+}
+try { Remove-OrcaWorktrees; exit 9 }
+catch { Write-Host $_.Exception.Message; exit 3 }
+'@ | Set-Content $runner
+        $output = & pwsh -NoProfile -NonInteractive -File $runner "$PSScriptRoot/.." $fixture $marker 2>&1 | Out-String
+        $LASTEXITCODE | Should -Be 3
+        $output | Should -Match 'QUARK_LIST_SHOWN'
+        $output | Should -Match 'NonInteractive'
+        Test-Path $marker | Should -BeFalse
+    }
+    It 'does not offer deletion when the default list has no candidates' {
+        $script:Tree.isPinned = $true
+        Mock Confirm-OrcaReapRemoval { throw 'Unexpected approval' }
+        $r = Remove-OrcaWorktrees
+        $r.VisibleResults.Count | Should -Be 0
+        @(Get-OrcaReapSpectreRows $r).Count | Should -Be 0
+        Should -Invoke Confirm-OrcaReapRemoval -Times 0 -Exactly
+        $script:Removed | Should -BeFalse
+    }
+    It 'keeps All read-only even with Force and confirmation disabled' {
+        Mock Confirm-OrcaReapRemoval { throw 'Unexpected approval' }
+        $r = Remove-OrcaWorktrees -All -Force -Confirm:$false
+        $r.CandidateCount | Should -Be 1
+        $r.VisibleResults.Count | Should -Be 1
+        $r.Results[0].Status | Should -Be 'Candidate'
+        Should -Invoke Confirm-OrcaReapRemoval -Times 0 -Exactly
+        $script:Calls -join '|' | Should -Not -Match 'worktree rm|unlock'
+    }
+    It 'uses the same day threshold in default and All modes: <Days>' -ForEach @(
+        @{ Days=7; Eligible=$true }; @{ Days=30; Eligible=$false }
+    ) {
+        $script:Tree.lastActivityAt = [DateTimeOffset]::UtcNow.AddDays(-20).ToUnixTimeMilliseconds()
+        $script:Activity.lastActivityAt = $script:Tree.lastActivityAt
+        $default = Remove-OrcaWorktrees -InactiveDays $Days -WhatIf
+        $all = Remove-OrcaWorktrees -All -InactiveDays $Days -WhatIf
+        $default.Results[0].Checks.OldEnough | Should -Be $Eligible
+        $all.Results[0].Checks.OldEnough | Should -Be $Eligible
+        $default.CandidateCount | Should -Be $all.CandidateCount
+        $default.VisibleResults.Count | Should -Be ([int]$Eligible)
+        $all.VisibleResults.Count | Should -Be 1
+        $script:Removed | Should -BeFalse
+    }
+    It 'filters a mixed inventory only in the default display, not in diagnostics or All' {
+        $rom = [ordered]@{}
+        foreach ($key in $script:Tree.Keys) { $rom[$key] = $script:Tree[$key] }
+        $rom.id = 'ds9::/tmp/rom'; $rom.path = '/tmp/rom'; $rom.isPinned = $true
+        $rom.instanceId = 'rom-2'
+        $rom.identity = @{key='wt2:local:rom-2'; executionHostId='local'; instanceId='rom-2'}
+        $romActivity = [ordered]@{}
+        foreach ($key in $script:Activity.Keys) { $romActivity[$key] = $script:Activity[$key] }
+        $romActivity.worktreeId = $rom.id; $romActivity.path = $rom.path
+        $romActivity.worktreeInstanceId = 'rom-2'; $romActivity.isPinned = $true
+        $script:ExtraTrees = @($rom); $script:ExtraActivity = @($romActivity)
+        $default = Remove-OrcaWorktrees -WhatIf
+        $default.Results.Count | Should -Be 2
+        @($default.VisibleResults).Worktree | Should -Be @('quark')
+        @(Get-OrcaReapSpectreRows $default).Worktree | Should -Be @('quark')
+        $all = Remove-OrcaWorktrees -All
+        @(Get-OrcaReapSpectreRows $all).Worktree | Should -Be @('quark', 'rom')
+        $all.Results[1].Explanation | Should -Match 'Pinned'
+        $all.Results[1].Checks.Ready | Should -BeFalse
+        $script:Removed | Should -BeFalse
+    }
+    It 'shows protected main worktrees and their reasons in All mode' {
+        $script:Tree.isMainWorktree = $true
+        $r = Remove-OrcaWorktrees -All -Spectre:$false
+        $r.VisibleResults.Count | Should -Be 1
+        @(Get-OrcaReapSpectreRows $r)[0].Reason | Should -Match 'Main'
+        $r | Out-String | Should -Match 'quark'
+        $script:Removed | Should -BeFalse
+    }
+    It 'cannot combine All inventory with Unlock mutations' {
+        { Remove-OrcaWorktrees -All -Unlock } | Should -Throw
+        $script:Removed | Should -BeFalse
+        $script:UnlockCalls | Should -Be 0
+    }
+
+    It 'shows locked worktrees even when recent and active, without treating them as candidates' {
+        $script:Locked = $true
+        $script:Tree.lastActivityAt = [DateTimeOffset]::UtcNow.ToUnixTimeMilliseconds()
+        $script:Activity.lastActivityAt = $script:Tree.lastActivityAt
+        $script:Activity.isActive = $true
+        $r = Remove-OrcaWorktrees -All -WhatIf -Spectre:$false
+        $r.Results[0].IsLocked | Should -BeTrue
+        $r.Results[0].LockReason | Should -Be 'Keep Quark'
+        $r.Results[0].Reason | Should -Be 'WorktreeLocked'
+        $r.Results[0].Checks.Ready | Should -BeFalse
+        @(Get-OrcaReapSpectreRows $r)[0].Lock | Should -Match '🔒'
+        Update-FormatData -PrependPath "$PSScriptRoot/../Formats/OrcaReap.format.ps1xml"
+        $r | Out-String -Width 160 | Should -Match '🔒'
+        $r.Results | Out-String -Width 160 | Should -Match '🔒'
+        $script:Removed | Should -BeFalse
+    }
+    It 'unlocks a selected locked worktree regardless of age or activity, without deleting it' {
+        $script:Locked = $true
+        $script:Activity.isActive = $true
+        $script:Tree.lastActivityAt = [DateTimeOffset]::UtcNow.ToUnixTimeMilliseconds()
+        $r = Remove-OrcaWorktrees -Unlock -Confirm:$false
+        $script:PickerInput -join ' ' | Should -Match 'quark.*Keep Quark'
+        $script:UnlockCalls | Should -Be 1
+        $r.Status | Should -Be 'Unlocked'
+        $script:Removed | Should -BeFalse
+        $script:Calls -join ' ' | Should -Not -Match 'worktree rm'
+    }
+    It 'does nothing when the unlock picker is cancelled' {
+        $script:Locked = $true; $script:CancelPicker = $true
+        Remove-OrcaWorktrees -Unlock -Confirm:$false
+        $script:UnlockCalls | Should -Be 0
+        $script:Locked | Should -BeTrue
+    }
+    It 'supports WhatIf for unlocking without continuing into cleanup' {
+        $script:Locked = $true
+        Remove-OrcaWorktrees -Unlock -WhatIf
+        $script:UnlockCalls | Should -Be 0
+        $script:Removed | Should -BeFalse
+    }
+    It 'rejects a picker selection that was not offered' {
+        $script:Locked = $true; $script:InvalidSelection = $true
+        { Remove-OrcaWorktrees -Unlock -Confirm:$false } | Should -Throw '*Invalid fzf selection*'
+        $script:UnlockCalls | Should -Be 0
+    }
+    It 'does not unlock after an fzf error' {
+        $script:Locked = $true; $script:PickerExit = 2
+        { Remove-OrcaWorktrees -Unlock -Confirm:$false } | Should -Throw '*fzf failed*'
+        $script:UnlockCalls | Should -Be 0
+    }
+    It 'rechecks identity after the selection' {
+        $script:Locked = $true; $script:PickerChange = { $script:Tree.branch = 'refs/heads/rom' }
+        { Remove-OrcaWorktrees -Unlock -Confirm:$false } | Should -Throw '*IdentityChanged*'
+        $script:UnlockCalls | Should -Be 0
+    }
+    It 'preserves locks whose reason changed while the picker was open' {
+        $script:Locked = $true; $script:PickerChange = { $script:LockReason = 'Keep Nog too' }
+        { Remove-OrcaWorktrees -Unlock -Confirm:$false } | Should -Throw '*lock changed*'
+        $script:UnlockCalls | Should -Be 0
+    }
+    It 'does not enter cleanup even when Unlock is explicitly false' {
+        Remove-OrcaWorktrees -Unlock:$false
+        $script:Removed | Should -BeFalse
+        $script:Calls -join ' ' | Should -Not -Match 'worktree rm'
+    }
+    It 'does not open fzf when no worktrees are locked' {
+        Mock fzf {}
+        Remove-OrcaWorktrees -Unlock -Confirm:$false
+        Should -Invoke fzf -Times 0 -Exactly
+        $script:UnlockCalls | Should -Be 0
+    }
+    It 'refuses unlocking when listing coverage is incomplete' {
+        $script:Locked = $true; $script:Truncated = $true
+        { Remove-OrcaWorktrees -Unlock -Confirm:$false } | Should -Throw '*IncompleteCoverage*'
+        $script:UnlockCalls | Should -Be 0
+    }
+    It 'cannot combine unlock mode with destructive cleanup switches' {
+        { Remove-OrcaWorktrees -Unlock -Force } | Should -Throw
+        $script:UnlockCalls | Should -Be 0
+        $script:Removed | Should -BeFalse
+    }
     It 'previews missing directories regardless of age/timestamp without Git inspection: <Timestamp>' -ForEach @(
         @{ Timestamp = 0 }
         @{ Timestamp = $null }
@@ -73,7 +314,7 @@ Describe 'Remove-OldOrcaWorktree safety workflow' {
         $script:PathMissing = $true
         $script:Tree.lastActivityAt = $Timestamp
         $script:Activity.lastActivityAt = $Timestamp
-        $r = Remove-OldOrcaWorktree -WhatIf
+        $r = Remove-OrcaWorktrees -WhatIf
         $r.CandidateCount | Should -Be 1
         $r.Results[0].MissingPath | Should -BeTrue
         $r.Results[0].Checks.Ready | Should -BeTrue
@@ -84,7 +325,7 @@ Describe 'Remove-OldOrcaWorktree safety workflow' {
     It 'waives hooks only for a revalidated missing directory and verifies removal' {
         $script:PathMissing = $true
         $script:Tree.lastActivityAt = 0; $script:Activity.lastActivityAt = 0
-        $r = Remove-OldOrcaWorktree -Confirm:$false
+        $r = Remove-OrcaWorktrees -Confirm:$false
         $r.DeletedCount | Should -Be 1
         $r.Results[0].MissingPath | Should -BeTrue
         @($script:Calls | Where-Object { $_ -like 'worktree rm *' }) | Should -Be @('worktree rm --worktree identity:wt2:local:quark-1 --run-hooks --allow-failed-archive-hook --json')
@@ -92,21 +333,21 @@ Describe 'Remove-OldOrcaWorktree safety workflow' {
     }
     It 'uses the global browser inventory instead of the hanging per-worktree query' {
         $script:PathMissing = $true
-        $r = Remove-OldOrcaWorktree -WhatIf
+        $r = Remove-OrcaWorktrees -WhatIf
         $r.CandidateCount | Should -Be 1
         @($script:Calls | Where-Object { $_ -like 'tab list *' }) | Should -Be @('tab list --worktree all --json')
     }
     It 'blocks tabs associated with the exact candidate worktree' {
         $script:PathMissing = $true
         $script:Tabs = @(@{ browserPageId='odo-page'; worktreeId=$script:Tree.id })
-        $r = Remove-OldOrcaWorktree -Confirm:$false
+        $r = Remove-OrcaWorktrees -Confirm:$false
         $r.Results[0].Reason | Should -Be 'ActiveResources'
         $script:Removed | Should -BeFalse
     }
     It 'does not let tabs on unrelated worktrees block cleanup' {
         $script:PathMissing = $true
         $script:Tabs = @(@{ browserPageId='rom-page'; worktreeId='ds9::/tmp/quark-other' })
-        $r = Remove-OldOrcaWorktree -WhatIf
+        $r = Remove-OrcaWorktrees -WhatIf
         $r.CandidateCount | Should -Be 1
         $r.Results[0].Checks.Ready | Should -BeTrue
         $script:Removed | Should -BeFalse
@@ -121,40 +362,40 @@ Describe 'Remove-OldOrcaWorktree safety workflow' {
             scalar { ,42 }
             null-inventory { $null }
         }
-        $r = Remove-OldOrcaWorktree -Confirm:$false
+        $r = Remove-OrcaWorktrees -Confirm:$false
         $r.Results[0].Reason | Should -Be 'ActiveResources'
         $script:Removed | Should -BeFalse
     }
     It 'refreshes global tabs during revalidation and blocks newly opened tabs' {
         $script:PathMissing = $true
         $script:Change = { $script:Tabs = @(@{browserPageId='odo-page';worktreeId=$script:Tree.id}) }
-        $r = Remove-OldOrcaWorktree -Confirm:$false
+        $r = Remove-OrcaWorktrees -Confirm:$false
         $r.Results[0].Reason | Should -Be 'ActiveResources'
         @($script:Calls | Where-Object { $_ -eq 'tab list --worktree all --json' }).Count | Should -Be 2
         $script:Removed | Should -BeFalse
     }
     It 'never waives hooks for existing paths even with Force' {
-        Remove-OldOrcaWorktree -Force -Confirm:$false | Out-Null
+        Remove-OrcaWorktrees -Force -Confirm:$false | Out-Null
         $script:Calls -join '|' | Should -Not -Match '--allow-failed-archive-hook'
     }
     It 'does not remove a missing entry that gains a directory during revalidation' {
         $script:PathMissing = $true
         $script:Change = { $script:PathMissing = $false }
-        $r = Remove-OldOrcaWorktree -Confirm:$false
+        $r = Remove-OrcaWorktrees -Confirm:$false
         $r.Results[0].Reason | Should -Be 'PathChanged'
         $r.Results[0].Checks.Ready | Should -BeFalse
         $script:Removed | Should -BeFalse
     }
     It 'fails closed on permission or other path inspection errors' {
         Mock Get-OrcaReapPathMissing { throw 'PathUnverified' }
-        $r = Remove-OldOrcaWorktree -Confirm:$false
+        $r = Remove-OrcaWorktrees -Confirm:$false
         $r.Results[0].Reason | Should -Be 'PathUnverified'
         $script:Removed | Should -BeFalse
     }
     It 'checks absence again immediately before removal' {
         $script:MissingProbes = 0
         Mock Get-OrcaReapPathMissing { $script:MissingProbes++; $script:MissingProbes -lt 4 }
-        $r = Remove-OldOrcaWorktree -Confirm:$false
+        $r = Remove-OrcaWorktrees -Confirm:$false
         $r.Results[0].Reason | Should -Be 'PathChanged'
         $r.Results[0].Checks.Ready | Should -BeFalse
         $script:Removed | Should -BeFalse
@@ -162,7 +403,7 @@ Describe 'Remove-OldOrcaWorktree safety workflow' {
     }
     It 'does not retry an uncertain missing-entry removal' {
         $script:PathMissing = $true; $script:RemoveFailure = $true
-        $r = Remove-OldOrcaWorktree -Confirm:$false
+        $r = Remove-OrcaWorktrees -Confirm:$false
         $r.FailedCount | Should -Be 1
         $r.Results[0].Checks.Ready | Should -BeFalse
         @($script:Calls | Where-Object { $_ -like 'worktree rm *' }).Count | Should -Be 1
@@ -174,12 +415,12 @@ Describe 'Remove-OldOrcaWorktree safety workflow' {
         $script:Activity.path = $script:Tree.path
         $script:Activity.worktreeId = $script:Tree.id
         $script:Tree.lastActivityAt = 0; $script:Activity.lastActivityAt = 0
-        $preview = Remove-OldOrcaWorktree -WhatIf
+        $preview = Remove-OrcaWorktrees -WhatIf
         $preview.CandidateCount | Should -Be 1
         $preview.Results[0].MissingPath | Should -BeTrue
         $script:ShowCount = 0
         $script:Change = { New-Item -ItemType Directory $script:Tree.path | Out-Null }
-        $r = Remove-OldOrcaWorktree -Confirm:$false
+        $r = Remove-OrcaWorktrees -Confirm:$false
         $r.Results[0].Reason | Should -Be 'PathChanged'
         Test-Path -LiteralPath $script:Tree.path | Should -BeTrue
         $script:Removed | Should -BeFalse
@@ -199,14 +440,14 @@ Describe 'Remove-OldOrcaWorktree safety workflow' {
             identity { $script:Tree.instanceId = 'rom-2' }
             coverage { $script:Truncated = $true }
         }
-        $r = Remove-OldOrcaWorktree -Force -Confirm:$false
+        $r = Remove-OrcaWorktrees -Force -Confirm:$false
         $r.DeletedCount | Should -Be 0
         $script:Removed | Should -BeFalse
     }
     It 'renders Spectre without changing WhatIf or the structured pipeline' {
         Mock Initialize-OrcaReapSpectre {}
         Mock Show-OrcaReapSpectre {}
-        $r = @(Remove-OldOrcaWorktree -Spectre -WhatIf)
+        $r = @(Remove-OrcaWorktrees -Spectre -WhatIf)
         $r.Count | Should -Be 1
         $r[0].Results[0].Checks.Ready | Should -BeTrue
         $r[0].Results[0].Checks.PSObject.Properties.Name | Should -Not -Contain 'CommitsSafe'
@@ -215,7 +456,7 @@ Describe 'Remove-OldOrcaWorktree safety workflow' {
         Should -Invoke Show-OrcaReapSpectre -Times 1 -Exactly
     }
     It 'uses Spectre by default without requiring the switch' {
-        $r = Remove-OldOrcaWorktree -WhatIf
+        $r = Remove-OrcaWorktrees -WhatIf
         $r.SpectreRendered | Should -BeTrue
         Should -Invoke Initialize-OrcaReapSpectre -Times 1 -Exactly
         Should -Invoke Show-OrcaReapSpectre -Times 1 -Exactly
@@ -223,7 +464,7 @@ Describe 'Remove-OldOrcaWorktree safety workflow' {
     }
     It 'falls back to plain output when Spectre cannot be loaded' {
         Mock Initialize-OrcaReapSpectre { throw 'secret-from-quark' }
-        $r = @(Remove-OldOrcaWorktree -WhatIf -WarningVariable warnings -WarningAction SilentlyContinue)
+        $r = @(Remove-OrcaWorktrees -WhatIf -WarningVariable warnings -WarningAction SilentlyContinue)
         $r.Count | Should -Be 1
         $r[0].SpectreRendered | Should -BeFalse
         $r[0].CandidateCount | Should -Be 1
@@ -235,7 +476,7 @@ Describe 'Remove-OldOrcaWorktree safety workflow' {
     It 'returns the verified result and warns without retrying when rendering fails' {
         Mock Initialize-OrcaReapSpectre {}
         Mock Show-OrcaReapSpectre { throw 'secret-from-quark' }
-        $r = Remove-OldOrcaWorktree -Spectre -WarningVariable warnings -WarningAction SilentlyContinue
+        $r = Remove-OrcaWorktrees -Confirm:$false -Spectre -WarningVariable warnings -WarningAction SilentlyContinue
         $r.DeletedCount | Should -Be 1
         $r.SpectreRendered | Should -BeFalse
         "$warnings" | Should -Match 'Spectre display failed'
@@ -245,27 +486,27 @@ Describe 'Remove-OldOrcaWorktree safety workflow' {
     It 'does not load or render Spectre when explicitly disabled' {
         Mock Initialize-OrcaReapSpectre {}
         Mock Show-OrcaReapSpectre {}
-        $r = Remove-OldOrcaWorktree -Spectre:$false -WhatIf
+        $r = Remove-OrcaWorktrees -Spectre:$false -WhatIf
         $r.SpectreRendered | Should -BeFalse
         Should -Invoke Initialize-OrcaReapSpectre -Times 0 -Exactly
         Should -Invoke Show-OrcaReapSpectre -Times 0 -Exactly
     }
     It 'reports an old inactive candidate with WhatIf' {
-        $r = Remove-OldOrcaWorktree -WhatIf
+        $r = Remove-OrcaWorktrees -WhatIf
         $r.CandidateCount | Should -Be 1
         $r.DeletedCount | Should -Be 0
         $r.Results[0].Status | Should -Be 'Candidate'
         $script:Calls -join '|' | Should -Not -Match 'worktree rm'
     }
     It 'marks every check green only after complete safe eligibility validation' {
-        $r = Remove-OldOrcaWorktree -WhatIf
+        $r = Remove-OrcaWorktrees -WhatIf
         foreach ($key in @('OldEnough', 'Inactive', 'Unpinned', 'NoChildren', 'Ready')) {
             $r.Results[0].Checks.$key | Should -BeTrue
         }
     }
     It 'shows independent metadata checks even when pinned or parented' {
         $script:Tree.isPinned = $true; $script:Tree.childWorktreeIds = @('ds9::/tmp/rom')
-        $r = Remove-OldOrcaWorktree
+        $r = Remove-OrcaWorktrees -Confirm:$false
         $r.Results[0].Checks.OldEnough | Should -BeTrue
         $r.Results[0].Checks.Inactive | Should -BeTrue
         $r.Results[0].Checks.Unpinned | Should -BeFalse
@@ -276,7 +517,7 @@ Describe 'Remove-OldOrcaWorktree safety workflow' {
         $script:Removed | Should -BeFalse
     }
     It 'delegates file protection to Orca without a local Files gate' {
-        $r = Remove-OldOrcaWorktree -WhatIf
+        $r = Remove-OrcaWorktrees -WhatIf
         $r.Results[0].Checks.Ready | Should -BeTrue
         $r.Results[0].Checks.PSObject.Properties.Name | Should -Not -Contain 'FilesSafe'
         $r.PSObject.Properties.Name | Should -Not -Contain 'NeedsForce'
@@ -285,23 +526,23 @@ Describe 'Remove-OldOrcaWorktree safety workflow' {
     }
     It 'does not claim unverified Git registration or partial coverage is ready' {
         $script:GitSafe = $false
-        $r = Remove-OldOrcaWorktree -WhatIf
+        $r = Remove-OrcaWorktrees -WhatIf
         $r.Results[0].Checks.Ready | Should -BeFalse
         $script:Truncated = $true
-        $r = Remove-OldOrcaWorktree -WhatIf
+        $r = Remove-OrcaWorktrees -WhatIf
         $r.Results[0].Checks.Ready | Should -BeFalse
     }
     It 'invalidates readiness after failed revalidation or removal' {
         $script:Change = { $script:Activity.liveTerminalCount = 1 }
-        $r = Remove-OldOrcaWorktree
+        $r = Remove-OrcaWorktrees -Confirm:$false
         $r.Results[0].Checks.Ready | Should -BeFalse
         $r.Results[0].Checks.Inactive | Should -BeFalse
         New-ReapFixture; $script:RemoveFailure = $true
-        $r = Remove-OldOrcaWorktree
+        $r = Remove-OrcaWorktrees -Confirm:$false
         $r.Results[0].Checks.Ready | Should -BeFalse
     }
     It 'adds a folder label without changing the full path or identity' {
-        $r = Remove-OldOrcaWorktree -WhatIf
+        $r = Remove-OrcaWorktrees -WhatIf
         $r.Results[0].Worktree | Should -Be 'quark'
         $r.Results[0].Path | Should -Be '/tmp/quark'
         $r.Results[0].Id | Should -Be 'ds9::/tmp/quark'
@@ -321,7 +562,7 @@ Describe 'Remove-OldOrcaWorktree safety workflow' {
         $script:Tree.isMainWorktree = $Main
         $script:Activity.path = $script:Tree.path
         $script:Activity.worktreeId = $script:Tree.id
-        $r = Remove-OldOrcaWorktree -Spectre:$false -WhatIf
+        $r = Remove-OrcaWorktrees -Spectre:$false -WhatIf
         $r.Results[0].Worktree | Should -Be $Folder
         $r.Results | Out-String -Width 140 | Should -Match ([regex]::Escape($Folder))
         if ($Main) {
@@ -338,7 +579,7 @@ Describe 'Remove-OldOrcaWorktree safety workflow' {
     }
     It 'sanitizes folder labels without changing validation metadata' {
         $script:Tree.path = "/tmp/quark`e[red]"
-        $r = Remove-OldOrcaWorktree -WhatIf
+        $r = Remove-OrcaWorktrees -All -WhatIf
         $r.Results[0].Worktree | Should -Be 'quark[red]'
         $script:Tree.path | Should -Be "/tmp/quark`e[red]"
         @(Get-OrcaReapSpectreRows $r)[0].Worktree | Should -Be 'quark[[red]]'
@@ -350,7 +591,7 @@ Describe 'Remove-OldOrcaWorktree safety workflow' {
         $script:Tree.path = $Path
         $script:Tree.branch = $null
         # Metadata is deliberately inconsistent so no native checks/removal can run.
-        $r = Remove-OldOrcaWorktree
+        $r = Remove-OrcaWorktrees -Confirm:$false
         $r.Results[0].Worktree | Should -Be 'quark'
         $r.Results[0].Path | Should -Be $Path
     }
@@ -358,7 +599,7 @@ Describe 'Remove-OldOrcaWorktree safety workflow' {
         Import-Module "$PSScriptRoot/../RickScripts.psd1" -Force
         $script:Tree.lastActivityAt = [DateTimeOffset]::UtcNow.AddDays(-3).AddHours(-1).ToUnixTimeMilliseconds()
         $script:Activity.lastActivityAt = $script:Tree.lastActivityAt
-        $r = Remove-OldOrcaWorktree -Spectre:$false -WhatIf
+        $r = Remove-OrcaWorktrees -All -Spectre:$false -WhatIf
         $r.Results[0].Checks.OldEnough | Should -BeFalse
         $r.Results[0].Checks.AgeDays | Should -Be 3
         $r | Out-String -Width 140 | Should -Match '(?m)^\s*quark\s+3d\s+'
@@ -369,24 +610,24 @@ Describe 'Remove-OldOrcaWorktree safety workflow' {
     }
     It 'keeps a checkmark for an old-enough age' {
         Import-Module "$PSScriptRoot/../RickScripts.psd1" -Force
-        $r = Remove-OldOrcaWorktree -Spectre:$false -WhatIf
+        $r = Remove-OrcaWorktrees -Spectre:$false -WhatIf
         $r.Results[0].Checks.AgeDays | Should -Be 40
         @(Get-OrcaReapSpectreRows $r)[0].Age | Should -Be '[green]✅[/]'
         $r.Results | Out-String -Width 140 | Should -Match '(?m)^\s*quark\s+✅\s+'
     }
     It 'renders a readable check matrix without leaking full paths into the default display' {
         Import-Module "$PSScriptRoot/../RickScripts.psd1" -Force
-        $r = Remove-OldOrcaWorktree -Spectre:$false -WhatIf
+        $r = Remove-OrcaWorktrees -Spectre:$false -WhatIf
         $text = $r | Out-String -Width 140
         $text | Should -Match 'Age.*Idle.*Unpinned.*NoKids.*Ready'
-        $text | Should -Match '(?m)^\s*quark\s+✅\s+✅\s+✅\s+✅\s+✅'
+        $text | Should -Match '(?m)^\s*quark\s+✅\s+✅\s+✅\s+✅\s+—\s+✅'
         $text | Should -Match 'quark'
         $text | Should -Not -Match '/tmp/quark|ds9::|Commits|Files'
         $r | ConvertTo-Json -Depth 8 | Should -Match '/tmp/quark'
     }
     It 'keeps Orca removal failures visible without retrying or escalating to force' {
         $script:RemoveFailure = $true
-        $r = Remove-OldOrcaWorktree -Confirm:$false
+        $r = Remove-OrcaWorktrees -Confirm:$false
         $r.Results[0].Status | Should -Be 'Failed'
         $r.Results[0].Reason | Should -Be 'CommandExit:17'
         $r.Results[0].Checks.Ready | Should -BeFalse
@@ -396,7 +637,7 @@ Describe 'Remove-OldOrcaWorktree safety workflow' {
     It 'hides protected main worktrees in the summary without weakening safety' {
         Import-Module "$PSScriptRoot/../RickScripts.psd1" -Force
         $script:Tree.isMainWorktree = $true
-        $r = Remove-OldOrcaWorktree -Spectre:$false -Force
+        $r = Remove-OrcaWorktrees -Spectre:$false -Force
         $text = $r | Out-String -Width 140
         $text | Should -Not -Match 'quark'
         $r.Results[0].Checks.Ready | Should -BeFalse
@@ -409,7 +650,7 @@ Describe 'Remove-OldOrcaWorktree safety workflow' {
     It 'keeps pinned worktrees visible and protected' {
         Import-Module "$PSScriptRoot/../RickScripts.psd1" -Force
         $script:Tree.isPinned = $true
-        $r = Remove-OldOrcaWorktree -Spectre:$false
+        $r = Remove-OrcaWorktrees -All -Spectre:$false
         $text = $r | Out-String -Width 140
         $text | Should -Match '❌'
         $text | Should -Match 'quark'
@@ -419,14 +660,14 @@ Describe 'Remove-OldOrcaWorktree safety workflow' {
     It 'does not hide an identity failure merely because a row claims to be main' {
         Import-Module "$PSScriptRoot/../RickScripts.psd1" -Force
         $script:Tree.isMainWorktree = $true; $script:Tree.hostId = 'mordor'
-        $r = Remove-OldOrcaWorktree -Spectre:$false
+        $r = Remove-OrcaWorktrees -All -Spectre:$false
         $r | Out-String -Width 140 | Should -Match 'quark'
         $r.Results[0].Reason | Should -Be 'IdentityUnverified'
     }
     It 'keeps coverage failures visible even when there are no worktree rows' {
         Import-Module "$PSScriptRoot/../RickScripts.psd1" -Force
         $script:BadJson = $true
-        $r = Remove-OldOrcaWorktree -Spectre:$false
+        $r = Remove-OrcaWorktrees -All -Spectre:$false
         $text = $r | Out-String -Width 140
         $text | Should -Match 'INCOMPLETE'
         $text | Should -Match 'MalformedResponse'
@@ -436,32 +677,32 @@ Describe 'Remove-OldOrcaWorktree safety workflow' {
     It 'defaults to 14 days and allows overriding the threshold from the command line' {
         $script:Tree.lastActivityAt = [DateTimeOffset]::UtcNow.AddDays(-20).ToUnixTimeMilliseconds()
         $script:Activity.lastActivityAt = $script:Tree.lastActivityAt
-        $default = Remove-OldOrcaWorktree -WhatIf
+        $default = Remove-OrcaWorktrees -WhatIf
         $default.InactiveDays | Should -Be 14
         $default.CandidateCount | Should -Be 1
-        $longer = Remove-OldOrcaWorktree -InactiveDays 30 -WhatIf
+        $longer = Remove-OrcaWorktrees -InactiveDays 30 -WhatIf
         $longer.InactiveDays | Should -Be 30
         $longer.CandidateCount | Should -Be 0
         $longer.Results[0].Reason | Should -Be 'RecentlyActive'
         $script:Tree.lastActivityAt = [DateTimeOffset]::UtcNow.AddDays(-10).ToUnixTimeMilliseconds()
         $script:Activity.lastActivityAt = $script:Tree.lastActivityAt
-        (Remove-OldOrcaWorktree -WhatIf).CandidateCount | Should -Be 0
-        (Remove-OldOrcaWorktree -InactiveDays 7 -WhatIf).CandidateCount | Should -Be 1
+        (Remove-OrcaWorktrees -WhatIf).CandidateCount | Should -Be 0
+        (Remove-OrcaWorktrees -InactiveDays 7 -WhatIf).CandidateCount | Should -Be 1
         $script:Removed | Should -BeFalse
     }
     It 'supports configurable age and excludes exactly the threshold or newer' {
-        (Remove-OldOrcaWorktree -WhatIf -InactiveDays 45).SkippedCount | Should -Be 1
-        (Remove-OldOrcaWorktree -WhatIf -InactiveDays 35).CandidateCount | Should -Be 1
+        (Remove-OrcaWorktrees -WhatIf -InactiveDays 45).SkippedCount | Should -Be 1
+        (Remove-OrcaWorktrees -WhatIf -InactiveDays 35).CandidateCount | Should -Be 1
         $script:Tree.lastActivityAt = [DateTimeOffset]::UtcNow.ToUnixTimeMilliseconds()
-        (Remove-OldOrcaWorktree).CandidateCount | Should -Be 0
+        (Remove-OrcaWorktrees).CandidateCount | Should -Be 0
     }
     It 'uses ShouldProcess and never removes with WhatIf' {
-        $r = Remove-OldOrcaWorktree -WhatIf
+        $r = Remove-OrcaWorktrees -WhatIf
         $r.DeletedCount | Should -Be 0
         $script:Calls -join '|' | Should -Not -Match 'worktree rm'
     }
     It 'revalidates then removes only through the supported guarded command' {
-        $r = Remove-OldOrcaWorktree -Confirm:$false
+        $r = Remove-OrcaWorktrees -Confirm:$false
         $r.DeletedCount | Should -Be 1
         $script:ShowCount | Should -Be 2
         @($script:Calls | Where-Object { $_ -like 'worktree rm *' })[0] | Should -Be 'worktree rm --worktree identity:wt2:local:quark-1 --run-hooks --json'
@@ -478,7 +719,7 @@ Describe 'Remove-OldOrcaWorktree safety workflow' {
         @{ Label = 'children'; Key = 'childWorktreeIds'; Value = @('ds9::/tmp/rom') }
     ) {
         $script:Tree[$Key] = $Value
-        (Remove-OldOrcaWorktree -Confirm:$false).SkippedCount | Should -Be 1
+        (Remove-OrcaWorktrees -Confirm:$false).SkippedCount | Should -Be 1
         $script:Removed | Should -BeFalse
     }
     It 'requires all inactivity indicators: <Key>' -ForEach @(
@@ -491,22 +732,22 @@ Describe 'Remove-OldOrcaWorktree safety workflow' {
         @{ Key = 'agents'; Value = @(@{state='working'}) }
     ) {
         $script:Activity[$Key] = $Value
-        (Remove-OldOrcaWorktree -Confirm:$false).SkippedCount | Should -Be 1
+        (Remove-OrcaWorktrees -Confirm:$false).SkippedCount | Should -Be 1
     }
     It 'does not interpret archived metadata as sleep or eligibility' {
         $script:Tree.isArchived = $true
         $script:Activity.status = 'working'
-        (Remove-OldOrcaWorktree).CandidateCount | Should -Be 0
+        (Remove-OrcaWorktrees).CandidateCount | Should -Be 0
     }
     It 'rejects missing inactivity fields' {
         $script:Activity.Remove('hasAttachedPty')
-        (Remove-OldOrcaWorktree).SkippedCount | Should -Be 1
+        (Remove-OrcaWorktrees).SkippedCount | Should -Be 1
     }
     It 'excludes browser resources and unsafe Git' {
         $script:Tabs = @(@{browserPageId='quark-browser'})
-        (Remove-OldOrcaWorktree).CandidateCount | Should -Be 0
+        (Remove-OrcaWorktrees).CandidateCount | Should -Be 0
         $script:Tabs = @(); $script:GitSafe = $false
-        (Remove-OldOrcaWorktree).CandidateCount | Should -Be 0
+        (Remove-OrcaWorktrees).CandidateCount | Should -Be 0
     }
     It 'blocks removal for partial scope or truncated/count-mismatched coverage: <Kind>' -ForEach @(
         @{ Kind = 'truncated' }; @{ Kind = 'omitted' }; @{ Kind = 'count' }; @{ Kind = 'unknown' }
@@ -517,21 +758,21 @@ Describe 'Remove-OldOrcaWorktree safety workflow' {
             count { $script:Total = 2 }
             unknown { $script:Scope = @{} }
         }
-        $r = Remove-OldOrcaWorktree -Confirm:$false
+        $r = Remove-OrcaWorktrees -Confirm:$false
         $r.CoverageComplete | Should -BeFalse
         $r.DeletedCount | Should -Be 0
         $script:Removed | Should -BeFalse
     }
     It 'handles malformed JSON without leaking raw output' {
         $script:BadJson = $true
-        $r = Remove-OldOrcaWorktree -Confirm:$false
+        $r = Remove-OrcaWorktrees -Confirm:$false
         $r.CoverageComplete | Should -BeFalse
         $r.FailedCount | Should -Be 1
         $r | ConvertTo-Json -Depth 10 | Should -Not -Match 'do-not-display'
     }
     It 'rejects a duplicate identity instead of guessing' {
         Mock Invoke-OrcaReapCommand { '{"ok":true,"result":{"worktrees":[{},{}],"totalCount":2,"truncated":false,"hostScope":{"hostIds":["local"],"omittedHostIds":[]}}}' }
-        (Remove-OldOrcaWorktree -Confirm:$false).DeletedCount | Should -Be 0
+        (Remove-OrcaWorktrees -Confirm:$false).DeletedCount | Should -Be 0
     }
     It 'skips a changed candidate during revalidation: <Kind>' -ForEach @(
         @{ Kind = 'identity' }; @{ Kind = 'activity' }; @{ Kind = 'git' }; @{ Kind = 'terminal' }; @{ Kind = 'pinned' }
@@ -543,49 +784,49 @@ Describe 'Remove-OldOrcaWorktree safety workflow' {
             terminal { { $script:Activity.liveTerminalCount = 1 } }
             pinned { { $script:Tree.isPinned = $true } }
         }
-        $r = Remove-OldOrcaWorktree -Confirm:$false
+        $r = Remove-OrcaWorktrees -Confirm:$false
         $r.SkippedCount | Should -Be 1
         $script:Removed | Should -BeFalse
     }
     It 'uses Orca force only for explicit Force while honoring WhatIf' {
-        (Remove-OldOrcaWorktree -Force -WhatIf).CandidateCount | Should -Be 1
+        (Remove-OrcaWorktrees -Force -WhatIf).CandidateCount | Should -Be 1
         $script:Removed | Should -BeFalse
-        (Remove-OldOrcaWorktree -Force -Confirm:$false).DeletedCount | Should -Be 1
+        (Remove-OrcaWorktrees -Force -Confirm:$false).DeletedCount | Should -Be 1
         @($script:Calls | Where-Object { $_ -like 'worktree rm *' })[0] | Should -Be 'worktree rm --worktree identity:wt2:local:quark-1 --run-hooks --force --json'
     }
     It 'never bypasses Git registration or resource safety with Force' {
         $script:GitSafe = $false
-        (Remove-OldOrcaWorktree -Force).CandidateCount | Should -Be 0
+        (Remove-OrcaWorktrees -Force).CandidateCount | Should -Be 0
         $script:GitSafe = $true; $script:Activity.hasAttachedPty = $true
-        (Remove-OldOrcaWorktree -Force).CandidateCount | Should -Be 0
+        (Remove-OrcaWorktrees -Force).CandidateCount | Should -Be 0
         $script:Removed | Should -BeFalse
     }
     It 'skips activity timestamp drift even if the workspace is currently inactive' {
         $script:Activity.lastActivityAt = [DateTimeOffset]::UtcNow.ToUnixTimeMilliseconds()
-        (Remove-OldOrcaWorktree).CandidateCount | Should -Be 0
+        (Remove-OrcaWorktrees).CandidateCount | Should -Be 0
     }
     It 'refuses a live terminal found by the independent terminal listing' {
         $script:TerminalRows = @(@{handle='term-quark'})
-        (Remove-OldOrcaWorktree).CandidateCount | Should -Be 0
+        (Remove-OrcaWorktrees).CandidateCount | Should -Be 0
         $script:Removed | Should -BeFalse
     }
     It 'marks coverage incomplete if it changes during revalidation' {
         $script:Change = { $script:Truncated = $true }
-        $r = Remove-OldOrcaWorktree
+        $r = Remove-OrcaWorktrees -Confirm:$false
         $r.CoverageComplete | Should -BeFalse
         $r.Results[0].Reason | Should -Be 'IncompleteCoverage'
         $script:Removed | Should -BeFalse
     }
     It 'refuses a runtime restart during revalidation' {
         $script:Change = { $script:Runtime = 'ds9-restarted' }
-        $r = Remove-OldOrcaWorktree
+        $r = Remove-OrcaWorktrees -Confirm:$false
         $r.CoverageComplete | Should -BeFalse
         $r.Results[0].Reason | Should -Be 'RuntimeChanged'
         $script:Removed | Should -BeFalse
     }
     It 'does not report success when removal is not confirmed by a complete listing' {
         $script:KeepRemovedListed = $true
-        $r = Remove-OldOrcaWorktree
+        $r = Remove-OrcaWorktrees -Confirm:$false
         $r.DeletedCount | Should -Be 0
         $r.FailedCount | Should -Be 1
         $r.CoverageComplete | Should -BeFalse
@@ -594,7 +835,7 @@ Describe 'Remove-OldOrcaWorktree safety workflow' {
     }
     It 'reports a removal failure without retries' {
         $script:RemoveFailure = $true
-        $r = Remove-OldOrcaWorktree -Confirm:$false
+        $r = Remove-OrcaWorktrees -Confirm:$false
         $r.FailedCount | Should -Be 1
         $r.DeletedCount | Should -Be 0
         @($script:Calls | Where-Object { $_ -like 'worktree rm *' }).Count | Should -Be 1
@@ -692,10 +933,17 @@ Describe 'Orca reap real Git safety boundaries (disposable local repositories)' 
         Invoke-FixtureGit @('-C', $script:Checkout, 'reset', '--hard', $script:GitTree.head) | Out-Null
         (Get-OrcaReapGitSafety $script:GitTree).Verified | Should -BeTrue
     }
-    It 'still refuses stashes after removing commit validation' {
-        Set-Content (Join-Path $script:Checkout 'seed.txt') 'Bilbo needs this later'
-        Invoke-FixtureGit @('-C', $script:Checkout, 'stash', 'push', '-m', 'Bilbo stash') | Out-Null
-        { Get-OrcaReapGitSafety $script:GitTree } | Should -Throw '*GitUnverified*'
+    It 'accepts repository-wide stashes and preserves them after worktree removal: <Origin>' -ForEach @(
+        @{ Origin = 'main' }; @{ Origin = 'linked' }
+    ) {
+        $stashPath = if ($Origin -eq 'main') { $script:Repo } else { $script:Checkout }
+        Set-Content (Join-Path $stashPath 'seed.txt') 'Bilbo needs this later'
+        Invoke-FixtureGit @('-C', $stashPath, 'stash', 'push', '-m', 'Bilbo stash') | Out-Null
+        $stash = (Invoke-FixtureGit @('-C', $script:Repo, 'rev-parse', 'refs/stash')).Trim()
+        (Get-OrcaReapGitSafety $script:GitTree).Verified | Should -BeTrue
+        Invoke-FixtureGit @('-C', $script:Repo, 'worktree', 'remove', $script:Checkout) | Out-Null
+        (Invoke-FixtureGit @('-C', $script:Repo, 'rev-parse', 'refs/stash')).Trim() | Should -Be $stash
+        (Invoke-FixtureGit @('-C', $script:Repo, 'stash', 'show', '-p')) | Should -Match 'Bilbo needs this later'
     }
     It 'still refuses submodule registrations after removing commit validation' {
         Invoke-FixtureGit @('-C', $script:Checkout, 'update-index', '--add', '--cacheinfo', "160000,$($script:GitTree.head),bag-end") | Out-Null
@@ -706,8 +954,55 @@ Describe 'Orca reap real Git safety boundaries (disposable local repositories)' 
         { Get-OrcaReapGitSafety $script:GitTree } | Should -Throw '*GitUnverified*'
     }
     It 'rejects a locked worktree' {
-        Invoke-FixtureGit @('-C', $script:Repo, 'worktree', 'lock', $script:Checkout) | Out-Null
-        { Get-OrcaReapGitSafety $script:GitTree } | Should -Throw '*GitUnverified*'
+        Invoke-FixtureGit @('-C', $script:Repo, 'worktree', 'lock', '--reason', 'Keep Samwise', $script:Checkout) | Out-Null
+        $lock = Get-OrcaReapLockState -Path $script:GitTree.path
+        $lock.IsLocked | Should -BeTrue
+        $lock.LockReason | Should -Be 'Keep Samwise'
+        { Get-OrcaReapGitSafety $script:GitTree } | Should -Throw '*WorktreeLocked*'
+        Invoke-FixtureGit @('-C', $script:Repo, 'worktree', 'unlock', $script:Checkout) | Out-Null
+        (Get-OrcaReapLockState -Path $script:GitTree.path).IsLocked | Should -BeFalse
+        (Get-OrcaReapGitSafety $script:GitTree).Verified | Should -BeTrue
+    }
+    It 'unlocks multiple real linked worktrees through the cmdlet without removing them' {
+        $second = Join-Path $script:GitRoot 'frodo'
+        Invoke-FixtureGit @('-C', $script:Repo, 'worktree', 'add', '-b', 'frodo', $second, 'main') | Out-Null
+        $second = (Get-Item $second).FullName
+        foreach ($path in @($script:GitTree.path, $second)) {
+            Invoke-FixtureGit @('-C', $script:Repo, 'worktree', 'lock', '--reason', 'Keep the Fellowship', $path) | Out-Null
+        }
+        New-ReapFixture
+        $script:PickerInput = @(); $script:PickerExit = 0; $script:CancelPicker = $false
+        $script:PickerChange = $null; $script:InvalidSelection = $false
+        $script:UnlockTrees = @(
+            foreach ($path in @($script:GitTree.path, $second)) {
+                $tree = @{} + $script:Tree
+                $tree.path = $path; $tree.id = "ds9::$path"
+                $tree.instanceId = Split-Path -Leaf $path
+                $tree.identity = @{key="wt2:local:$($tree.instanceId)"}
+                $tree
+            }
+        )
+        Mock Invoke-OrcaReapCommand {
+            param($Executable, $Arguments, $TimeoutSeconds)
+            if ($Executable -eq 'git') {
+                return & $script:NativeReapCommand -Executable $Executable -Arguments $Arguments -TimeoutSeconds $TimeoutSeconds
+            }
+            $result = if ($Arguments[1] -eq 'list') {
+                @{worktrees=$script:UnlockTrees; hostScope=$script:Scope; totalCount=2; truncated=$false}
+            }
+            elseif ($Arguments[1] -eq 'show') {
+                @{worktree=($script:UnlockTrees | Where-Object { "identity:$($_.identity.key)" -ceq $Arguments[3] })}
+            }
+            else { throw 'Unexpected Orca operation' }
+            @{ok=$true; result=$result; _meta=@{runtimeId='ds9-runtime'}} | ConvertTo-Json -Depth 12 -Compress
+        }
+        $result = @(Remove-OrcaWorktrees -Unlock -Confirm:$false)
+        $result.Count | Should -Be 2
+        $result.Status | Should -Be @('Unlocked', 'Unlocked')
+        foreach ($path in @($script:GitTree.path, $second)) {
+            Test-Path -LiteralPath $path | Should -BeTrue
+            (Get-OrcaReapLockState -Path $path).IsLocked | Should -BeFalse
+        }
     }
     It 'accepts missing/local-only base refs while still refusing detached Git state' {
         $script:GitTree.baseRef = 'refs/heads/main'
@@ -776,9 +1071,19 @@ Describe 'Orca reap command transport and parsing' {
     ) {
         { ConvertFrom-OrcaReapResponse $Text } | Should -Throw '*InvalidResponse*'
     }
+    It 'exports the renamed cmdlet without an old-name function or compatibility alias' {
+        Import-Module "$PSScriptRoot/../RickScripts.psd1" -Force
+        $module = Get-Module RickScripts
+        $module.ExportedFunctions.ContainsKey('Remove-OrcaWorktrees') | Should -BeTrue
+        $module.ExportedFunctions.ContainsKey('Remove-OldOrcaWorktree') | Should -BeFalse
+        $module.ExportedAliases.ContainsKey('Remove-OldOrcaWorktree') | Should -BeFalse
+        Get-Command Remove-OldOrcaWorktree -Module RickScripts -ErrorAction SilentlyContinue | Should -BeNullOrEmpty
+        $module.ExportedFunctions['Remove-OrcaWorktrees'].Parameters.Keys | Should -Contain 'All'
+        $module.ExportedFunctions['Remove-OrcaWorktrees'].Parameters.Keys | Should -Contain 'InactiveDays'
+    }
     It 'exports only the public cmdlet through the module manifest' {
         Import-Module "$PSScriptRoot/../RickScripts.psd1" -Force
-        (Get-Module RickScripts).ExportedFunctions.ContainsKey('Remove-OldOrcaWorktree') | Should -BeTrue
+        (Get-Module RickScripts).ExportedFunctions.ContainsKey('Remove-OrcaWorktrees') | Should -BeTrue
         (Get-Module RickScripts).ExportedFunctions.ContainsKey('Get-OrcaReapGitSafety') | Should -BeFalse
     }
 }
@@ -839,6 +1144,8 @@ Describe 'Orca reap Spectre presentation' {
         Mock 'PwshSpectreConsole\Write-SpectreHost' {}
         @(Show-OrcaReapSpectre $summary).Count | Should -Be 0
         Should -Invoke 'PwshSpectreConsole\Write-SpectreHost' -Times 0 -Exactly
+        $summary | Add-Member -NotePropertyName All -NotePropertyValue $true
+        @(Show-OrcaReapSpectre $summary).Count | Should -Be 0
         $summary.Results=@()
         @(Show-OrcaReapSpectre $summary).Count | Should -Be 0
     }
