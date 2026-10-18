@@ -262,6 +262,9 @@ function Remove-OrcaWorktrees {
                     if ($entry.Reason -cmatch '^Orca:(?<operation>[^:]+):(?<code>.+)$') {
                         $operation = $Matches.operation; $code = $Matches.code
                         $detail = switch ($code) {
+                            { $_ -cin @('runtime_error:DirtyWorktree', 'worktree_dirty') } {
+                                'Orca refused removal because the worktree contains modified or untracked files. Commit or stash those changes before running normal cleanup again.'
+                            }
                             'worktree_archive_hook_failed' { 'The archive hook failed. Fix the hook before retrying; removal was blocked by Orca.' }
                             'selector_not_found' { 'Orca could not find the selected worktree. Refresh the inventory; do not retry the stale target.' }
                             'runtime_access_denied' { 'Access to the selected Orca runtime was denied.' }

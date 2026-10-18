@@ -1,5 +1,5 @@
-# Private helpers for Remove-OrcaWorktrees. Only structured Orca error codes,
-# never raw messages, Git output or hook output, may enter diagnostics.
+# Private helpers for Remove-OrcaWorktrees. Only structured Orca error codes and
+# fixed refusal categories, never raw messages or hook output, enter diagnostics.
 function Invoke-OrcaReapCommand {
     param([string]$Executable, [string[]]$Arguments, [int]$TimeoutSeconds = 60, [switch]$OrcaResponse)
     $start = [System.Diagnostics.ProcessStartInfo]::new()
@@ -46,6 +46,18 @@ function Invoke-OrcaReapCommand {
                     -not $response['ok'] -and $response['error'] -is [System.Collections.IDictionary] -and
                     $response['error']['code'] -is [string] -and $response['error']['code'] -cmatch '^[a-z][a-z0-9_]{0,79}$') {
                     $failure.Data['OrcaErrorCode'] = $response['error']['code']
+                    $message = $response['error']['message']
+                    if ($response['error']['code'] -ceq 'runtime_error' -and $message -is [string] -and $message.Length -le 8192) {
+                        # Orca's legacy formatter replaces the dirty explanation with
+                        # porcelain status. Recognize only this complete refusal shape,
+                        # not arbitrary errors mentioning files or .gitmodules. Never
+                        # retain the message, its paths, or any hook output.
+                        $dirtyStatus = '\AFailed to delete worktree at [^\r\n]+\.\s+(?:[ MADRCUT]{2}|[MADRCUT]|\?\?) [^\r\n]+(?:\r?\n(?:[ MADRCUT]{2}|\?\?) [^\r\n]+)*\s*\z'
+                        $dirtyExplanation = '\AFailed to delete worktree at [^\r\n]+\.\s+Worktree has uncommitted or untracked changes\.(?:\r?\n|\z)'
+                        if ($message -cmatch $dirtyStatus -or $message -cmatch $dirtyExplanation) {
+                            $failure.Data['OrcaFailureCategory'] = 'DirtyWorktree'
+                        }
+                    }
                 }
             }
             throw $failure
@@ -127,7 +139,13 @@ function Get-OrcaReapDiagnostic {
     if ($operation -cin @('worktree rm', 'worktree list', 'worktree show', 'worktree ps', 'terminal list', 'tab list') -and
         $reason -match '^CommandExit:-?\d+$') {
         $code = $ErrorRecord.Exception.Data['OrcaErrorCode']
-        if ($code -is [string] -and $code -cmatch '^[a-z][a-z0-9_]{0,79}$') { return "Orca:${operation}:$code" }
+        if ($code -is [string] -and $code -cmatch '^[a-z][a-z0-9_]{0,79}$') {
+            if ($operation -ceq 'worktree rm' -and $code -ceq 'runtime_error' -and
+                $ErrorRecord.Exception.Data['OrcaFailureCategory'] -ceq 'DirtyWorktree') {
+                return "Orca:${operation}:${code}:DirtyWorktree"
+            }
+            return "Orca:${operation}:$code"
+        }
         return "Orca:${operation}:$reason"
     }
     $codes = @('CommandTimeout', 'MalformedResponse', 'InvalidResponse', 'IncompleteCoverage',

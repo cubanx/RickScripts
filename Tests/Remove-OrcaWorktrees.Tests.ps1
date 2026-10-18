@@ -1,5 +1,6 @@
 BeforeAll {
     . "$PSScriptRoot/../Common/OrcaReap.ps1"
+    $script:NativeOrcaTransport = (Get-Command Invoke-OrcaReapCommand).ScriptBlock
     . "$PSScriptRoot/../Common/OrcaReapBranches.ps1"
     . "$PSScriptRoot/../Common/OrcaReapDisplay.ps1"
     . "$PSScriptRoot/../Functions/Remove-OrcaWorktrees.ps1"
@@ -738,6 +739,25 @@ catch { Write-Host $_.Exception.Message; exit 3 }
         $r.Results[0].Explanation | Should -Match 'worktree rm'
         Should -Invoke Invoke-OrcaReapCommand -Times 1 -Exactly -ParameterFilter { $Arguments -contains 'rm' -and $OrcaResponse }
     }
+    It 'clearly reports dirty-worktree refusals without printing raw output or retrying' {
+        Mock Invoke-OrcaReapCommand {
+            $payload = @{ok=$false; error=@{code='runtime_error'; message="Failed to delete worktree at /tmp/quark. M .dockerignore`n?? secret-from-quark.txt"}} | ConvertTo-Json -Compress
+            $command = "[Console]::WriteLine('$($payload.Replace("'", "''"))'); [Console]::Error.WriteLine('secret-from-quark'); exit 1"
+            & $script:NativeOrcaTransport -Executable 'pwsh' -Arguments @('-NoProfile', '-Command', $command) -OrcaResponse
+        } -ParameterFilter { $Arguments -contains 'rm' }
+        $r = Remove-OrcaWorktrees -Confirm:$false -Spectre:$false
+        $r.Results[0].Status | Should -Be 'Failed'
+        $r.Results[0].Reason | Should -Be 'Orca:worktree rm:runtime_error:DirtyWorktree'
+        $r.Results[0].Explanation | Should -Match 'modified or untracked files'
+        $r.Results[0].Explanation | Should -Match 'Commit or stash'
+        $text = ($r | Out-String -Width 140) -replace '\s+', ' '
+        $text | Should -Match 'modified or untracked files'
+        $text | Should -Match 'Commit or stash'
+        $text | Should -Not -Match 'secret-from-quark|\.dockerignore'
+        $r | ConvertTo-Json -Depth 8 | Should -Not -Match 'secret-from-quark|\.dockerignore'
+        Should -Invoke Invoke-OrcaReapCommand -Times 1 -Exactly -ParameterFilter { $Arguments -contains 'rm' -and $Arguments -notcontains '--force' }
+        Should -Invoke Remove-OrcaReapBranches -Times 0 -Exactly
+    }
     It 'keeps Orca removal failures visible without retrying or escalating to force' {
         $script:RemoveFailure = $true
         $r = Remove-OrcaWorktrees -Confirm:$false
@@ -1170,6 +1190,45 @@ Describe 'Orca reap real path absence checks' {
 }
 
 Describe 'Orca reap command transport and parsing' {
+    It 'recognizes Orca dirty refusals without retaining raw messages: <Message>' -ForEach @(
+        @{Message="Failed to delete worktree at /tmp/quark. M .dockerignore`n M .gitignore`n?? secret-from-quark.txt"}
+        @{Message='Failed to delete worktree at /tmp/quark. ?? secret-from-quark.txt'}
+        @{Message='Failed to delete worktree at /tmp/quark. Worktree has uncommitted or untracked changes.'}
+    ) {
+        $payload = @{ok=$false; error=@{code='runtime_error'; message=$Message}} | ConvertTo-Json -Compress
+        $command = "[Console]::WriteLine('$($payload.Replace("'", "''"))'); [Console]::Error.WriteLine('secret-from-quark'); exit 1"
+        try {
+            Invoke-OrcaReapCommand -Executable 'pwsh' -Arguments @('-NoProfile', '-Command', $command) -OrcaResponse
+            throw 'Expected failure'
+        }
+        catch {
+            $_.Exception.Data['OrcaOperation'] = 'worktree rm'
+            Get-OrcaReapDiagnostic $_ | Should -Be 'Orca:worktree rm:runtime_error:DirtyWorktree'
+            $_.Exception.Data | ConvertTo-Json | Should -Not -Match 'secret-from-quark|/tmp/quark'
+            $_.Exception.Message | Should -Not -Match 'secret-from-quark|/tmp/quark'
+            $_.Exception.Data['OrcaOperation'] = 'worktree show'
+            Get-OrcaReapDiagnostic $_ | Should -Be 'Orca:worktree show:runtime_error'
+        }
+    }
+    It 'does not mistake unrelated runtime errors or hooks for dirty refusals: <Code> <Message>' -ForEach @(
+        @{Code='runtime_error'; Message='Unexpected failure: secret-from-quark'}
+        @{Code='runtime_error'; Message='Failed to delete worktree at /tmp/quark. Permission denied'}
+        @{Code='runtime_error'; Message='Git config .gitmodules returned 1'}
+        @{Code='runtime_error'; Message=123}
+        @{Code='worktree_archive_hook_failed'; Message='Failed to delete worktree at /tmp/quark. ?? secret-from-quark.txt'}
+    ) {
+        $payload = @{ok=$false; error=@{code=$Code; message=$Message}} | ConvertTo-Json -Compress
+        $command = "[Console]::WriteLine('$($payload.Replace("'", "''"))'); exit 1"
+        try {
+            Invoke-OrcaReapCommand -Executable 'pwsh' -Arguments @('-NoProfile', '-Command', $command) -OrcaResponse
+            throw 'Expected failure'
+        }
+        catch {
+            $_.Exception.Data['OrcaOperation'] = 'worktree rm'
+            Get-OrcaReapDiagnostic $_ | Should -Be "Orca:worktree rm:$Code"
+            $_.Exception.Data | ConvertTo-Json | Should -Not -Match 'secret-from-quark|/tmp/quark'
+        }
+    }
     It 'retains a structured Orca failure code without exposing hook output' {
         $command = '[Console]::WriteLine(''{"ok":false,"error":{"code":"worktree_archive_hook_failed","message":"secret-from-quark","data":{"stderr":"secret-from-quark"}}}''); [Console]::Error.WriteLine("secret-from-quark"); exit 1'
         try {
