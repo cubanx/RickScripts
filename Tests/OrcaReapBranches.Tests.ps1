@@ -73,7 +73,8 @@ Describe 'Merged Orca branch cleanup with disposable origin' {
                 'worktree show *' { @{worktree=$script:pickTree} }
                 'worktree rm *' {
                     $Arguments | Should -Contain '--force'
-                    $Arguments | Should -Contain '--allow-failed-archive-hook'
+                    $Arguments | Should -Not -Contain '--run-hooks'
+                    $Arguments | Should -Not -Contain '--allow-failed-archive-hook'
                     $null = & $script:realBranchCommand git @('-C', $script:pickRepo, 'worktree', 'remove', '--force', $script:pickCheckout) 10
                     $script:pickRemoved = $true
                     @{removed=$true}

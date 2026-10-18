@@ -7,14 +7,15 @@ function Remove-OrcaWorktrees {
     By default, only eligible candidates are shown, then deletion requires confirmation.
     -All shows every worktree and never offers or performs deletion. Use -WhatIf to preview.
     -Pick opens an fzf multi-select picker for local non-main worktrees. Selected
-    worktrees are force-removed regardless of age, activity, pins, children, locks or
-    archive-hook failure. Active processes and local files may be lost. Associated
+    worktrees are force-removed regardless of age, activity, pins, children or locks,
+    and archive hooks are skipped entirely. Active processes and local files may be lost. Associated
     local/origin branches are deleted even if unmerged. Exact identity, primary-branch
     protection, confirmation and -WhatIf still apply. Escape cancels without changes.
     -Confirm:$false explicitly skips the deletion prompt. Confirmed missing
-    directories are deregistered without an age/Git gate, with a conditional archive-hook
-    waiver. Existing directories never receive that waiver. -Force passes --force to Orca;
-    it never bypasses identity/resource checks.
+    directories are deregistered without an age/Git gate. Normal cleanup runs archive
+    hooks, with a failure waiver only for missing directories. -Force and -Pick skip
+    archive/safety scripts entirely. -Force passes --force to Orca; it never bypasses
+    identity/resource checks.
     After verified removal, also deletes the associated merged local branch and,
     when verified merged into its origin base, the same-named origin branch. Unmerged,
     protected, changed, or unverifiable branches are retained. Missing checkouts use
@@ -255,7 +256,10 @@ function Remove-OrcaWorktrees {
                 'ManualSelection' { 'Selected for forced removal; eligibility checks bypassed' }
                 'NotSelected' { 'Not selected; no changes requested' }
                 'Eligible' {
-                    if ($entry.MissingPath) { 'Missing directory; eligible for deregistration with archive-hook waiver' }
+                    if ($entry.MissingPath) {
+                        if ($Force -or $Pick) { 'Missing directory; eligible for deregistration with archive hooks skipped' }
+                        else { 'Missing directory; eligible for deregistration with archive-hook waiver' }
+                    }
                     else { 'Passed safety checks' }
                 }
                 default {
@@ -429,8 +433,8 @@ function Remove-OrcaWorktrees {
     $preview = Get-ReapSummary
     Show-ReapSummary $preview
     if ($All -or -not $coverageComplete -or $candidates.Count -eq 0) { return $preview }
-    $action = if ($Pick) { 'FORCE remove selected worktrees, unlock Git locks, waive failed archive hooks, stop active work and delete UNMERGED local/origin branches (files and commits may be lost)' }
-        elseif ($Force) { 'Remove listed worktrees via Orca --force and delete merged local/origin branches (local files may be lost)' }
+    $action = if ($Pick) { 'FORCE remove selected worktrees, unlock Git locks, skip archive/safety hooks, stop active work and delete UNMERGED local/origin branches (files and commits may be lost)' }
+        elseif ($Force) { 'Remove listed worktrees via Orca --force, skip archive/safety hooks and delete merged local/origin branches (local files may be lost)' }
         else { 'Remove listed worktrees via Orca and delete merged local/origin branches (including missing-directory deregistration)' }
     if (-not (Confirm-OrcaReapRemoval -Cmdlet $PSCmdlet -Target "$($candidates.Count) eligible worktree(s)" -Action $action)) {
         foreach ($candidate in $candidates) { $candidate.Entry.Reason = 'WhatIfOrDeclined' }
@@ -491,12 +495,15 @@ function Remove-OrcaWorktrees {
         try {
             # Last absence check before issuing the one-shot mutation; never retry on failure.
             if ((Get-OrcaReapPathMissing -Path $tree.path) -ne $entry.MissingPath) { throw 'PathChanged' }
-            $arguments = @('worktree', 'rm', '--worktree', "identity:$($tree.identity.key)", '--run-hooks')
+            $arguments = @('worktree', 'rm', '--worktree', "identity:$($tree.identity.key)")
+            if (-not ($Force -or $Pick)) {
+                $arguments += '--run-hooks'
+                if ($entry.MissingPath) { $arguments += '--allow-failed-archive-hook' }
+            }
             if ($Pick -and $entry.IsLocked) {
                 $null = Invoke-OrcaReapCommand -Executable 'git' -Arguments @('-C', $tree.path, 'worktree', 'unlock', $tree.path) -TimeoutSeconds $TimeoutSeconds
                 if ((Get-OrcaReapLockState -Path $tree.path -TimeoutSeconds $TimeoutSeconds).IsLocked) { throw 'WorktreeLocked' }
             }
-            if ($entry.MissingPath -or $Pick) { $arguments += '--allow-failed-archive-hook' }
             if ($Force -or $Pick) { $arguments += '--force' }
             $removed = Invoke-ReapOrca $arguments
             if ($removed._meta.runtimeId -cne $snapshot.Listing._meta.runtimeId) { throw 'RuntimeChanged' }

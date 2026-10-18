@@ -97,7 +97,7 @@ Describe 'Remove-OrcaWorktrees safety workflow' {
         $r.DeletedCount | Should -Be 1
         $script:PickerInput.Count | Should -Be 1
         $script:Calls | Where-Object { $_ -like 'worktree rm *' } | Should -Match '--force'
-        $script:Calls | Where-Object { $_ -like 'worktree rm *' } | Should -Match '--allow-failed-archive-hook'
+        $script:Calls | Where-Object { $_ -like 'worktree rm *' } | Should -Not -Match '--run-hooks|--allow-failed-archive-hook'
         $script:UnlockCalls | Should -Be 1
         Should -Invoke Get-OrcaReapGitSafety -Times 1 -Exactly -ParameterFilter { $Force }
         Should -Invoke Get-OrcaReapBranchPlan -Times 1 -Exactly -ParameterFilter { $Force }
@@ -475,6 +475,29 @@ catch { Write-Host $_.Exception.Message; exit 3 }
         $r.Results[0].Reason | Should -Be 'ActiveResources'
         @($script:Calls | Where-Object { $_ -eq 'tab list --worktree all --json' }).Count | Should -Be 2
         $script:Removed | Should -BeFalse
+    }
+    It 'runs scripts only for normal cleanup: <Mode>, missing=<Missing>' -ForEach @(
+        @{Mode='Normal'; Force=$false; Pick=$false; Missing=$false}
+        @{Mode='Normal'; Force=$false; Pick=$false; Missing=$true}
+        @{Mode='Force'; Force=$true; Pick=$false; Missing=$false}
+        @{Mode='Force'; Force=$true; Pick=$false; Missing=$true}
+        @{Mode='Pick'; Force=$false; Pick=$true; Missing=$false}
+        @{Mode='Pick'; Force=$false; Pick=$true; Missing=$true}
+    ) {
+        $script:PathMissing = $Missing
+        $r = Remove-OrcaWorktrees -Force:$Force -Pick:$Pick -Confirm:$false -WarningAction SilentlyContinue
+        $r.DeletedCount | Should -Be 1
+        $removals = @($script:Calls | Where-Object { $_ -like 'worktree rm *' })
+        $removals.Count | Should -Be 1
+        if ($Force -or $Pick) {
+            $removals[0] | Should -Match '--force'
+            $removals[0] | Should -Not -Match '--run-hooks|--allow-failed-archive-hook'
+        }
+        else {
+            $removals[0] | Should -Match '--run-hooks'
+            if ($Missing) { $removals[0] | Should -Match '--allow-failed-archive-hook' }
+            else { $removals[0] | Should -Not -Match '--allow-failed-archive-hook' }
+        }
     }
     It 'never waives hooks for existing paths even with Force' {
         Remove-OrcaWorktrees -Force -Confirm:$false | Out-Null
@@ -927,7 +950,7 @@ catch { Write-Host $_.Exception.Message; exit 3 }
         (Remove-OrcaWorktrees -Force -WhatIf).CandidateCount | Should -Be 1
         $script:Removed | Should -BeFalse
         (Remove-OrcaWorktrees -Force -Confirm:$false).DeletedCount | Should -Be 1
-        @($script:Calls | Where-Object { $_ -like 'worktree rm *' })[0] | Should -Be 'worktree rm --worktree identity:wt2:local:quark-1 --run-hooks --force --json'
+        @($script:Calls | Where-Object { $_ -like 'worktree rm *' })[0] | Should -Be 'worktree rm --worktree identity:wt2:local:quark-1 --force --json'
     }
     It 'never bypasses Git registration or resource safety with Force' {
         $script:GitSafe = $false
