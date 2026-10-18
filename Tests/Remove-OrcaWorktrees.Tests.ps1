@@ -1,5 +1,6 @@
 BeforeAll {
     . "$PSScriptRoot/../Common/OrcaReap.ps1"
+    . "$PSScriptRoot/../Common/OrcaReapBranches.ps1"
     . "$PSScriptRoot/../Common/OrcaReapDisplay.ps1"
     . "$PSScriptRoot/../Functions/Remove-OrcaWorktrees.ps1"
 
@@ -46,6 +47,8 @@ Describe 'Remove-OrcaWorktrees safety workflow' {
         New-ReapFixture
         Mock Initialize-OrcaReapSpectre {}
         Mock Show-OrcaReapSpectre {}
+        Mock Get-OrcaReapBranchPlan { [pscustomobject]@{ Name='quark' } }
+        Mock Remove-OrcaReapBranches { [pscustomobject]@{ Local='Deleted'; Origin='Deleted'; LocalReason=''; OriginReason='' } }
         Mock Get-OrcaReapPathMissing { $script:PathMissing }
         $script:Locked = $false; $script:LockReason = 'Keep Quark'; $script:UnlockCalls = 0
         $script:CancelPicker = $false; $script:PickerInput = @()
@@ -82,6 +85,35 @@ Describe 'Remove-OrcaWorktrees safety workflow' {
         }
     }
 
+    It 'cleans branches only after verified removal' {
+        Mock Remove-OrcaReapBranches {
+            $script:Removed | Should -BeTrue
+            [pscustomobject]@{ Local='Deleted'; Origin='Deleted'; LocalReason=''; OriginReason='' }
+        }
+        $r = Remove-OrcaWorktrees -Confirm:$false
+        $r.Results[0].BranchCleanup.Origin | Should -Be 'Deleted'
+        Should -Invoke Remove-OrcaReapBranches -Times 1 -Exactly
+    }
+    It 'never cleans branches in preview or inventory modes' {
+        Remove-OrcaWorktrees -WhatIf | Out-Null
+        Remove-OrcaWorktrees -All | Out-Null
+        Should -Invoke Get-OrcaReapBranchPlan -Times 0 -Exactly
+        Should -Invoke Remove-OrcaReapBranches -Times 0 -Exactly
+    }
+    It 'never cleans branches after failed or unverified removal' {
+        $script:RemoveFailure = $true
+        Remove-OrcaWorktrees -Confirm:$false | Out-Null
+        $script:RemoveFailure = $false; $script:KeepRemovedListed = $true
+        Remove-OrcaWorktrees -Confirm:$false | Out-Null
+        Should -Invoke Remove-OrcaReapBranches -Times 0 -Exactly
+    }
+    It 'reports retained branches without calling worktree removal a failure' {
+        Mock Remove-OrcaReapBranches { [pscustomobject]@{ Local='Retained'; Origin='Failed'; LocalReason='NotMerged'; OriginReason='CommandExit:1' } }
+        $r = Remove-OrcaWorktrees -Confirm:$false -WarningVariable notices -WarningAction SilentlyContinue
+        $r.DeletedCount | Should -Be 1
+        $r.Results[0].BranchCleanup.Origin | Should -Be 'Failed'
+        $notices -join ' ' | Should -Match 'Branch cleanup'
+    }
     It 'shows only candidates before offering deletion, and declining leaves them untouched' {
         $script:Presented = $false
         Mock Show-OrcaReapSpectre {

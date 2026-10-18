@@ -109,7 +109,8 @@ function Get-OrcaReapDiagnostic {
     $codes = @('CommandTimeout', 'MalformedResponse', 'InvalidResponse', 'IncompleteCoverage',
         'IdentityUnverified', 'IdentityChanged', 'ProtectedWorktree', 'TimestampInvalid',
         'RecentlyActive', 'ActivityUnverified', 'ActiveResources', 'GitUnverified',
-        'RuntimeChanged', 'RemovalUnverified', 'PathChanged', 'PathUnverified', 'WorktreeLocked')
+        'RuntimeChanged', 'RemovalUnverified', 'PathChanged', 'PathUnverified', 'WorktreeLocked',
+        'BranchUnverified', 'BranchProtected', 'OriginTargetUnverified')
     if ($reason -in $codes -or $reason -match '^CommandExit:-?\d+$') { return $reason }
     return "CheckFailed:$($ErrorRecord.Exception.GetType().Name)"
 }

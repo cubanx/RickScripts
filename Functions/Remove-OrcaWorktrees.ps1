@@ -10,6 +10,12 @@ function Remove-OrcaWorktrees {
     directories are deregistered without an age/Git gate, with a conditional archive-hook
     waiver. Existing directories never receive that waiver. -Force passes --force to Orca;
     it never bypasses identity/resource checks.
+    After verified removal, also deletes the associated merged local branch and,
+    when verified merged into its origin base, the same-named origin branch. Unmerged,
+    protected, changed, or unverifiable branches are retained. Missing checkouts use
+    an inventoried local main checkout to verify Git identity when available.
+    BranchCleanup reports outcomes separately from worktree removal; -Force never forces
+    branch deletion.
     Returns one structured summary. Uses Spectre.Console when available, otherwise plain
     output. Use -Spectre:$false to disable rich output. Requires PowerShell 7 and a running
     local Orca runtime. Git-locked worktrees are kept and shown with a lock icon.
@@ -284,6 +290,7 @@ function Remove-OrcaWorktrees {
                 Path = $displayPath
                 IsMainWorktree = $tree.isMainWorktree -is [bool] -and $tree.isMainWorktree
                 MissingPath = $false; IsLocked = $null; LockReason = ''; Status = 'Skipped'; Reason = ''
+                BranchCleanup = $null
                 Checks = $assessment.Checks; ProtectionReasons = $assessment.ProtectionReasons
             }
             $results.Add($entry)
@@ -326,8 +333,8 @@ function Remove-OrcaWorktrees {
     $preview = Get-ReapSummary
     Show-ReapSummary $preview
     if ($All -or -not $coverageComplete -or $candidates.Count -eq 0) { return $preview }
-    $action = if ($Force) { 'Remove listed worktrees via Orca --force (local files may be lost)' }
-        else { 'Remove listed worktrees via Orca (including missing-directory deregistration)' }
+    $action = if ($Force) { 'Remove listed worktrees via Orca --force and delete merged local/origin branches (local files may be lost)' }
+        else { 'Remove listed worktrees via Orca and delete merged local/origin branches (including missing-directory deregistration)' }
     if (-not (Confirm-OrcaReapRemoval -Cmdlet $PSCmdlet -Target "$($candidates.Count) eligible worktree(s)" -Action $action)) {
         foreach ($candidate in $candidates) { $candidate.Entry.Reason = 'WhatIfOrDeclined' }
         $declined = Get-ReapSummary
@@ -363,6 +370,26 @@ function Remove-OrcaWorktrees {
             }
             continue
         }
+        # Capture the repository before Orca removes the directory. Failure to prove
+        # branch safety must not weaken or prevent the existing worktree workflow.
+        $branchPlan = $null
+        $entry.BranchCleanup = [pscustomobject]@{ Branch=$tree.branch; Local='Retained'; Origin='Retained'; LocalReason='RemovalNotVerified'; OriginReason='RemovalNotVerified' }
+        try {
+            $repositoryPath = $tree.path
+            if ($entry.MissingPath) {
+                $mainTrees = @($recheck.Listing.result.worktrees | Where-Object {
+                    $_.repoId -ceq $tree.repoId -and $_.hostId -ceq 'local' -and $_.isMainWorktree -eq $true
+                })
+                if ($mainTrees.Count -ne 1) { throw 'BranchUnverified' }
+                $repositoryPath = $mainTrees[0].path
+            }
+            $branchPlan = Get-OrcaReapBranchPlan $tree -TimeoutSeconds $TimeoutSeconds -RepositoryPath $repositoryPath
+        }
+        catch {
+            $diagnostic = Get-OrcaReapDiagnostic $_
+            $entry.BranchCleanup.LocalReason = $diagnostic
+            $entry.BranchCleanup.OriginReason = $diagnostic
+        }
         # Removal/verification failures are distinct from ineligibility. Never retry a mutation.
         try {
             # Last absence check before issuing the one-shot mutation; never retry on failure.
@@ -377,6 +404,13 @@ function Remove-OrcaWorktrees {
                 -not (Test-OrcaReapCoverage $after.result 'worktrees')) { throw 'RemovalUnverified' }
             if (@($after.result.worktrees | Where-Object { $_.id -ceq $tree.id -or $_.identity.key -ceq $tree.identity.key }).Count -gt 0) { throw 'RemovalUnverified' }
             $entry.Status = 'Deleted'; $entry.Reason = 'RemovalVerified'
+            if ($branchPlan) {
+                $entry.BranchCleanup = Remove-OrcaReapBranches $branchPlan -TimeoutSeconds $TimeoutSeconds
+            }
+            if ($entry.BranchCleanup.Local -notin @('Deleted', 'Absent') -or
+                $entry.BranchCleanup.Origin -notin @('Deleted', 'Absent')) {
+                Write-Warning "Branch cleanup for '$($entry.Worktree)': local=$($entry.BranchCleanup.Local) ($($entry.BranchCleanup.LocalReason)); origin=$($entry.BranchCleanup.Origin) ($($entry.BranchCleanup.OriginReason)). See Results.BranchCleanup."
+            }
         }
         catch {
             $entry.Status = 'Failed'; $entry.Reason = Get-OrcaReapDiagnostic $_
