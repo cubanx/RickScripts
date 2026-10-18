@@ -726,11 +726,25 @@ catch { Write-Host $_.Exception.Message; exit 3 }
         $text | Should -Not -Match '/tmp/quark|ds9::|Commits|Files'
         $r | ConvertTo-Json -Depth 8 | Should -Match '/tmp/quark'
     }
+    It 'explains structured removal failures and preserves the failing operation' {
+        Mock Invoke-OrcaReapCommand {
+            $failure = [System.Exception]::new('CommandExit:1')
+            $failure.Data['OrcaErrorCode'] = 'worktree_archive_hook_failed'
+            throw $failure
+        } -ParameterFilter { $Arguments -contains 'rm' }
+        $r = Remove-OrcaWorktrees -Confirm:$false
+        $r.Results[0].Reason | Should -Be 'Orca:worktree rm:worktree_archive_hook_failed'
+        $r.Results[0].Explanation | Should -Match 'archive hook failed'
+        $r.Results[0].Explanation | Should -Match 'worktree rm'
+        Should -Invoke Invoke-OrcaReapCommand -Times 1 -Exactly -ParameterFilter { $Arguments -contains 'rm' -and $OrcaResponse }
+    }
     It 'keeps Orca removal failures visible without retrying or escalating to force' {
         $script:RemoveFailure = $true
         $r = Remove-OrcaWorktrees -Confirm:$false
         $r.Results[0].Status | Should -Be 'Failed'
-        $r.Results[0].Reason | Should -Be 'CommandExit:17'
+        $r.Results[0].Reason | Should -Be 'Orca:worktree rm:CommandExit:17'
+        $r.Results[0].Explanation | Should -Match 'worktree rm failed: Exit 17'
+        $r.Results[0].Explanation | Should -Match 'Inspect Orca logs before retrying'
         $r.Results[0].Checks.Ready | Should -BeFalse
         @($script:Calls | Where-Object { $_ -like 'worktree rm *' }).Count | Should -Be 1
         $script:Calls -join '|' | Should -Not -Match '--force'
@@ -1156,6 +1170,33 @@ Describe 'Orca reap real path absence checks' {
 }
 
 Describe 'Orca reap command transport and parsing' {
+    It 'retains a structured Orca failure code without exposing hook output' {
+        $command = '[Console]::WriteLine(''{"ok":false,"error":{"code":"worktree_archive_hook_failed","message":"secret-from-quark","data":{"stderr":"secret-from-quark"}}}''); [Console]::Error.WriteLine("secret-from-quark"); exit 1'
+        try {
+            Invoke-OrcaReapCommand -Executable 'pwsh' -Arguments @('-NoProfile', '-Command', $command) -OrcaResponse
+            throw 'Expected failure'
+        }
+        catch {
+            $_.Exception.Data['OrcaOperation'] = 'worktree rm'
+            Get-OrcaReapDiagnostic $_ | Should -Be 'Orca:worktree rm:worktree_archive_hook_failed'
+            $_.Exception.Message | Should -Not -Match 'secret-from-quark'
+        }
+    }
+    It 'falls back safely for non-JSON or malformed Orca failure output: <Payload>' -ForEach @(
+        @{Payload='secret-from-quark'}
+        @{Payload='{"ok":false,"error":{"code":"not a code secret-from-quark"}}'}
+        @{Payload='{"ok":false,"error":{"code":["secret-from-quark"]}}'}
+    ) {
+        $command = "[Console]::WriteLine('$($Payload.Replace("'", "''"))'); exit 1"
+        try {
+            Invoke-OrcaReapCommand -Executable 'pwsh' -Arguments @('-NoProfile', '-Command', $command) -OrcaResponse
+            throw 'Expected failure'
+        }
+        catch {
+            $_.Exception.Data['OrcaOperation'] = 'worktree rm'
+            Get-OrcaReapDiagnostic $_ | Should -Be 'Orca:worktree rm:CommandExit:1'
+        }
+    }
     It 'bounds a hanging command and returns sanitized diagnostics' {
         { Invoke-OrcaReapCommand -Executable 'pwsh' -Arguments @('-NoProfile', '-Command', 'Start-Sleep 10') -TimeoutSeconds 1 } | Should -Throw '*CommandTimeout*'
     }

@@ -73,8 +73,14 @@ function Remove-OrcaWorktrees {
 
     function Invoke-ReapOrca {
         param([string[]]$CommandArguments)
-        $text = Invoke-OrcaReapCommand -Executable $OrcaCommand -Arguments ($CommandArguments + @('--json')) -TimeoutSeconds $TimeoutSeconds
-        ConvertFrom-OrcaReapResponse -Text $text
+        try {
+            $text = Invoke-OrcaReapCommand -Executable $OrcaCommand -Arguments ($CommandArguments + @('--json')) -TimeoutSeconds $TimeoutSeconds -OrcaResponse
+            ConvertFrom-OrcaReapResponse -Text $text
+        }
+        catch {
+            $_.Exception.Data['OrcaOperation'] = $CommandArguments[0..1] -join ' '
+            throw
+        }
     }
     function Get-ReapSnapshot {
         $listing = Invoke-ReapOrca @('worktree', 'list', '--limit', "$Limit")
@@ -252,7 +258,24 @@ function Remove-OrcaWorktrees {
                     if ($entry.MissingPath) { 'Missing directory; eligible for deregistration with archive-hook waiver' }
                     else { 'Passed safety checks' }
                 }
-                default { $entry.Reason }
+                default {
+                    if ($entry.Reason -cmatch '^Orca:(?<operation>[^:]+):(?<code>.+)$') {
+                        $operation = $Matches.operation; $code = $Matches.code
+                        $detail = switch ($code) {
+                            'worktree_archive_hook_failed' { 'The archive hook failed. Fix the hook before retrying; removal was blocked by Orca.' }
+                            'selector_not_found' { 'Orca could not find the selected worktree. Refresh the inventory; do not retry the stale target.' }
+                            'runtime_access_denied' { 'Access to the selected Orca runtime was denied.' }
+                            default {
+                                if ($code -match '^CommandExit:(-?\d+)$') {
+                                    "Exit $($Matches[1]); Orca returned no usable structured error code. Raw output was withheld because it may contain hook secrets. Inspect Orca logs before retrying."
+                                }
+                                else { "Orca reported '$code'. Inspect the worktree and Orca logs before retrying." }
+                            }
+                        }
+                        "$operation failed: $detail"
+                    }
+                    else { $entry.Reason }
+                }
             }
             $entry | Add-Member -Force -NotePropertyName Explanation -NotePropertyValue $explanation
         }

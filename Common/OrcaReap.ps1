@@ -1,6 +1,7 @@
-# Private helpers for Remove-OrcaWorktrees. Raw command output never enters diagnostics.
+# Private helpers for Remove-OrcaWorktrees. Only structured Orca error codes,
+# never raw messages, Git output or hook output, may enter diagnostics.
 function Invoke-OrcaReapCommand {
-    param([string]$Executable, [string[]]$Arguments, [int]$TimeoutSeconds = 60)
+    param([string]$Executable, [string[]]$Arguments, [int]$TimeoutSeconds = 60, [switch]$OrcaResponse)
     $start = [System.Diagnostics.ProcessStartInfo]::new()
     $start.FileName = $Executable
     $start.UseShellExecute = $false
@@ -33,7 +34,22 @@ function Invoke-OrcaReapCommand {
         if (-not $stdout.Wait($TimeoutSeconds * 1000) -or -not $stderr.Wait($TimeoutSeconds * 1000)) { throw 'CommandTimeout' }
         $text = $stdout.GetAwaiter().GetResult()
         $null = $stderr.GetAwaiter().GetResult()
-        if ($process.ExitCode -ne 0) { throw "CommandExit:$($process.ExitCode)" }
+        if ($process.ExitCode -ne 0) {
+            $failure = [System.Exception]::new("CommandExit:$($process.ExitCode)")
+            if ($OrcaResponse) {
+                # Orca emits its error envelope on stdout even when exiting nonzero.
+                # Invalid/non-JSON output is fully handled as an unstructured failure.
+                $response = $null
+                try { $response = ConvertFrom-Json -InputObject $text -AsHashtable -ErrorAction Stop }
+                catch { $failure.Data['OrcaPayload'] = 'Unstructured' }
+                if ($response -is [System.Collections.IDictionary] -and $response['ok'] -is [bool] -and
+                    -not $response['ok'] -and $response['error'] -is [System.Collections.IDictionary] -and
+                    $response['error']['code'] -is [string] -and $response['error']['code'] -cmatch '^[a-z][a-z0-9_]{0,79}$') {
+                    $failure.Data['OrcaErrorCode'] = $response['error']['code']
+                }
+            }
+            throw $failure
+        }
         return $text
     }
     finally { $process.Dispose() }
@@ -104,8 +120,16 @@ function Get-OrcaReapLockState {
 
 function Get-OrcaReapDiagnostic {
     param($ErrorRecord)
-    # Allow only our fixed reason codes; never copy provider, Git, hook or JSON error text.
+    # Only our fixed reasons and bounded structured error identifiers are safe.
+    # Operation comes from the cmdlet's own argument list, not provider messages.
     $reason = $ErrorRecord.Exception.Message
+    $operation = $ErrorRecord.Exception.Data['OrcaOperation']
+    if ($operation -cin @('worktree rm', 'worktree list', 'worktree show', 'worktree ps', 'terminal list', 'tab list') -and
+        $reason -match '^CommandExit:-?\d+$') {
+        $code = $ErrorRecord.Exception.Data['OrcaErrorCode']
+        if ($code -is [string] -and $code -cmatch '^[a-z][a-z0-9_]{0,79}$') { return "Orca:${operation}:$code" }
+        return "Orca:${operation}:$reason"
+    }
     $codes = @('CommandTimeout', 'MalformedResponse', 'InvalidResponse', 'IncompleteCoverage',
         'IdentityUnverified', 'IdentityChanged', 'ProtectedWorktree', 'TimestampInvalid',
         'RecentlyActive', 'ActivityUnverified', 'ActiveResources', 'GitUnverified',
