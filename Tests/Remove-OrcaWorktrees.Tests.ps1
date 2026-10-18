@@ -11,7 +11,10 @@ BeforeAll {
             if ($script:PickerChange) { & $script:PickerChange }
             $global:LASTEXITCODE = if ($script:CancelPicker) { 130 } else { $script:PickerExit }
             if ($script:InvalidSelection) { 'not a listed worktree' }
-            elseif (-not $script:CancelPicker) { $script:PickerInput }
+            elseif (-not $script:CancelPicker) {
+                if ($null -ne $script:PickerIndex) { $script:PickerInput[$script:PickerIndex] }
+                else { $script:PickerInput }
+            }
         }
     }
 
@@ -51,7 +54,7 @@ Describe 'Remove-OrcaWorktrees safety workflow' {
         Mock Remove-OrcaReapBranches { [pscustomobject]@{ Local='Deleted'; Origin='Deleted'; LocalReason=''; OriginReason='' } }
         Mock Get-OrcaReapPathMissing { $script:PathMissing }
         $script:Locked = $false; $script:LockReason = 'Keep Quark'; $script:UnlockCalls = 0
-        $script:CancelPicker = $false; $script:PickerInput = @()
+        $script:CancelPicker = $false; $script:PickerInput = @(); $script:PickerIndex = $null
         $script:PickerChange = $null; $script:PickerExit = 0; $script:InvalidSelection = $false
         Mock Get-OrcaReapLockState { [pscustomobject]@{ IsLocked = $script:Locked; LockReason = $script:LockReason } }
         Mock Get-OrcaReapGitSafety { if (-not $script:GitSafe) { throw 'GitUnverified' }; [pscustomobject]@{ Verified = $true } }
@@ -85,6 +88,72 @@ Describe 'Remove-OrcaWorktrees safety workflow' {
         }
     }
 
+    It 'offers recent, pinned, active, locked worktrees in Pick mode and force removes the selection' {
+        $script:Tree.isPinned = $true; $script:Activity.isPinned = $true
+        $script:Tree.lastActivityAt = [DateTimeOffset]::UtcNow.ToUnixTimeMilliseconds()
+        $script:Activity.isActive = $true; $script:Locked = $true
+        $r = Remove-OrcaWorktrees -Pick -Confirm:$false
+        $r.DeletedCount | Should -Be 1
+        $script:PickerInput.Count | Should -Be 1
+        $script:Calls | Where-Object { $_ -like 'worktree rm *' } | Should -Match '--force'
+        $script:Calls | Where-Object { $_ -like 'worktree rm *' } | Should -Match '--allow-failed-archive-hook'
+        $script:UnlockCalls | Should -Be 1
+        Should -Invoke Get-OrcaReapGitSafety -Times 1 -Exactly -ParameterFilter { $Force }
+        Should -Invoke Get-OrcaReapBranchPlan -Times 1 -Exactly -ParameterFilter { $Force }
+        Should -Invoke Remove-OrcaReapBranches -Times 1 -Exactly -ParameterFilter { $Force }
+    }
+    It 'removes only the selected entry from a mixed inventory' {
+        $rom = [ordered]@{}
+        foreach ($key in $script:Tree.Keys) { $rom[$key] = $script:Tree[$key] }
+        $rom.id = 'ds9::/tmp/rom'; $rom.path = '/tmp/rom'; $rom.instanceId = 'rom-2'
+        $rom.identity = @{key='wt2:local:rom-2'; executionHostId='local'; instanceId='rom-2'}
+        $script:ExtraTrees = @($rom)
+        $script:PickerIndex = 0
+        $r = Remove-OrcaWorktrees -Pick -Confirm:$false
+        $script:PickerInput.Count | Should -Be 2
+        $r.CandidateCount | Should -Be 1
+        $r.DeletedCount | Should -Be 1
+        $r.Results[1].Reason | Should -Be 'NotSelected'
+        @($script:Calls | Where-Object { $_ -like 'worktree rm *' }).Count | Should -Be 1
+    }
+    It 'never mutates when fzf fails in Pick mode' {
+        $script:PickerExit = 2
+        { Remove-OrcaWorktrees -Pick -Confirm:$false } | Should -Throw '*fzf failed*'
+        $script:Removed | Should -BeFalse
+        $script:UnlockCalls | Should -Be 0
+    }
+    It 'does not remove anything when Pick is cancelled or previewed' {
+        $script:CancelPicker = $true
+        Remove-OrcaWorktrees -Pick -Confirm:$false | Out-Null
+        $script:CancelPicker = $false
+        Remove-OrcaWorktrees -Pick -WhatIf | Out-Null
+        $script:Removed | Should -BeFalse
+        $script:UnlockCalls | Should -Be 0
+        Should -Invoke Remove-OrcaReapBranches -Times 0 -Exactly
+    }
+    It 'never offers main worktrees or remote hosts in Pick mode' {
+        $script:Tree.isMainWorktree = $true
+        Remove-OrcaWorktrees -Pick -Confirm:$false | Out-Null
+        $script:PickerInput.Count | Should -Be 0
+        $script:Tree.isMainWorktree = $false; $script:Tree.hostId = 'remote-ds9'
+        Remove-OrcaWorktrees -Pick -Confirm:$false | Out-Null
+        $script:PickerInput.Count | Should -Be 0
+        $script:Removed | Should -BeFalse
+    }
+    It 'rejects forged picker selections before any mutation' {
+        $script:InvalidSelection = $true
+        { Remove-OrcaWorktrees -Pick -Confirm:$false } | Should -Throw '*Invalid fzf selection*'
+        $script:Removed | Should -BeFalse
+    }
+    It 'still rejects a changed identity after selecting a Pick target' {
+        $script:PickerChange = { $script:Tree.instanceId = 'replacement' }
+        $r = Remove-OrcaWorktrees -Pick -Confirm:$false
+        $r.DeletedCount | Should -Be 0
+        $script:Removed | Should -BeFalse
+    }
+    It 'rejects the incompatible inventory and Pick flags' {
+        { Remove-OrcaWorktrees -Pick -All } | Should -Throw
+    }
     It 'cleans branches only after verified removal' {
         Mock Remove-OrcaReapBranches {
             $script:Removed | Should -BeTrue

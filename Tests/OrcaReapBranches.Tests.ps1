@@ -1,6 +1,9 @@
 BeforeAll {
     . "$PSScriptRoot/../Common/OrcaReap.ps1"
     . "$PSScriptRoot/../Common/OrcaReapBranches.ps1"
+    . "$PSScriptRoot/../Common/OrcaReapDisplay.ps1"
+    . "$PSScriptRoot/../Functions/Remove-OrcaWorktrees.ps1"
+    $script:realBranchCommand = (Get-Command Invoke-OrcaReapCommand).ScriptBlock
     function Invoke-BranchGit {
         param([string[]]$Arguments)
         Invoke-OrcaReapCommand git $Arguments 10
@@ -39,6 +42,85 @@ Describe 'Merged Orca branch cleanup with disposable origin' {
         $null = Invoke-BranchGit @('-C', $repo, 'branch', '-d', 'quark')
         $result = Remove-OrcaReapBranches $plan
         $result.Local | Should -Be 'Absent'
+        $result.Origin | Should -Be 'Absent'
+    }
+    It 'removes a selected dirty locked checkout and its unmerged branches through the cmdlet' {
+        $null = Invoke-BranchGit @('-C', $checkout, 'commit', '--allow-empty', '-m', 'unmerged')
+        $tree.head = (Invoke-BranchGit @('-C', $checkout, 'rev-parse', 'HEAD')).Trim()
+        $null = Invoke-BranchGit @('-C', $repo, 'push', 'origin', 'quark')
+        Set-Content (Join-Path $checkout 'latinum.txt') 'Untracked cargo'
+        $null = Invoke-BranchGit @('-C', $repo, 'worktree', 'lock', $checkout)
+        $script:pickRepo = $repo; $script:pickCheckout = $checkout; $script:pickRemoved = $false
+        $script:pickTree = @{
+            id="ds9::$checkout"; path=$checkout; repoId='ds9'; hostId='local'; instanceId='quark-1'
+            identity=@{key='wt2:local:quark-1'; executionHostId='local'; instanceId='quark-1'}
+            isMainWorktree=$false; isPinned=$true; isBare=$false; childWorktreeIds=@('rom')
+            head=$tree.head; branch=$tree.branch; baseRef=$tree.baseRef
+            lastActivityAt=[DateTimeOffset]::UtcNow.ToUnixTimeMilliseconds()
+        }
+        function fzf { process { $_ } end { $global:LASTEXITCODE = 0 } }
+        Mock Initialize-OrcaReapSpectre {}
+        Mock Show-OrcaReapSpectre {}
+        Mock Invoke-OrcaReapCommand {
+            param($Executable, $Arguments, $TimeoutSeconds)
+            & $script:realBranchCommand $Executable $Arguments $TimeoutSeconds
+        }
+        Mock Invoke-OrcaReapCommand {
+            param($Arguments)
+            $command = $Arguments -join ' '
+            $result = switch -Wildcard ($command) {
+                'worktree list *' { @{worktrees=@(if(-not $script:pickRemoved){$script:pickTree}); totalCount=$(if($script:pickRemoved){0}else{1}); truncated=$false; hostScope=@{hostIds=@('local'); omittedHostIds=@()}} }
+                'worktree show *' { @{worktree=$script:pickTree} }
+                'worktree rm *' {
+                    $Arguments | Should -Contain '--force'
+                    $Arguments | Should -Contain '--allow-failed-archive-hook'
+                    $null = & $script:realBranchCommand git @('-C', $script:pickRepo, 'worktree', 'remove', '--force', $script:pickCheckout) 10
+                    $script:pickRemoved = $true
+                    @{removed=$true}
+                }
+                default { throw "Unexpected fixture command: $command" }
+            }
+            @{ok=$true; result=$result; _meta=@{runtimeId='ds9'}} | ConvertTo-Json -Depth 12 -Compress
+        } -ParameterFilter { $Executable -eq 'orca-pick-fixture' }
+        $result = Remove-OrcaWorktrees -Pick -OrcaCommand 'orca-pick-fixture' -Confirm:$false
+        $result.DeletedCount | Should -Be 1
+        $result.Results[0].BranchCleanup.Local | Should -Be 'Deleted'
+        $result.Results[0].BranchCleanup.Origin | Should -Be 'Deleted'
+        Test-Path $checkout | Should -BeFalse
+        (Invoke-BranchGit @('-C', $repo, 'branch', '--list', 'quark')).Trim() | Should -BeNullOrEmpty
+        (Invoke-BranchGit @('-C', $repo, 'ls-remote', '--heads', 'origin', 'refs/heads/quark')).Trim() | Should -BeNullOrEmpty
+    }
+    It 'force deletes captured unmerged branches without a usable base' {
+        $null = Invoke-BranchGit @('-C', $checkout, 'commit', '--allow-empty', '-m', 'unmerged latinum')
+        $tree.head = (Invoke-BranchGit @('-C', $checkout, 'rev-parse', 'HEAD')).Trim()
+        $tree.baseRef = 'refs/remotes/origin/missing'
+        $null = Invoke-BranchGit @('-C', $repo, 'push', 'origin', 'quark')
+        $plan = Get-OrcaReapBranchPlan $tree -Force
+        $null = Invoke-BranchGit @('-C', $repo, 'worktree', 'remove', $checkout)
+        $result = Remove-OrcaReapBranches $plan -Force
+        $result.Local | Should -Be 'Deleted'
+        $result.Origin | Should -Be 'Deleted'
+        (Invoke-BranchGit @('-C', $repo, 'branch', '--list', 'quark')).Trim() | Should -BeNullOrEmpty
+        (Invoke-BranchGit @('-C', $repo, 'ls-remote', '--heads', 'origin', 'refs/heads/quark')).Trim() | Should -BeNullOrEmpty
+    }
+    It 'does not force delete an origin branch changed since selection' {
+        $null = Invoke-BranchGit @('-C', $repo, 'push', 'origin', 'quark')
+        $plan = Get-OrcaReapBranchPlan $tree -Force
+        $null = Invoke-BranchGit @('-C', $checkout, 'commit', '--allow-empty', '-m', 'new remote work')
+        $newTip = (Invoke-BranchGit @('-C', $checkout, 'rev-parse', 'HEAD')).Trim()
+        $null = Invoke-BranchGit @('-C', $repo, 'push', 'origin', 'quark')
+        $null = Invoke-BranchGit @('-C', $repo, 'worktree', 'remove', $checkout)
+        $result = Remove-OrcaReapBranches $plan -Force
+        $result.Origin | Should -Be 'Retained'
+        $result.OriginReason | Should -Be 'BranchChanged'
+        (Invoke-BranchGit @('--git-dir', $origin, 'rev-parse', 'refs/heads/quark')).Trim() | Should -Be $newTip
+    }
+    It 'can force delete a local branch with no origin' {
+        $null = Invoke-BranchGit @('-C', $repo, 'remote', 'remove', 'origin')
+        $plan = Get-OrcaReapBranchPlan $tree -Force
+        $null = Invoke-BranchGit @('-C', $repo, 'worktree', 'remove', $checkout)
+        $result = Remove-OrcaReapBranches $plan -Force
+        $result.Local | Should -Be 'Deleted'
         $result.Origin | Should -Be 'Absent'
     }
     It 'retains unmerged commits locally and on origin' {

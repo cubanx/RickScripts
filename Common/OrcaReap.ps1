@@ -151,7 +151,7 @@ function Assert-OrcaReapMetadata {
 }
 
 function Get-OrcaReapGitSafety {
-    param($Tree, [int]$TimeoutSeconds = 60)
+    param($Tree, [int]$TimeoutSeconds = 60, [switch]$Force)
     function Invoke-ReapGit {
         param([string[]]$GitArguments)
         Invoke-OrcaReapCommand -Executable 'git' -Arguments (@('-C', $Tree.path,
@@ -167,12 +167,12 @@ function Get-OrcaReapGitSafety {
     $registrations = (Invoke-ReapGit @('worktree', 'list', '--porcelain')) -split '(?:\r?\n){2}'
     if ($registrations.Count -lt 2 -or $registrations[0] -match "(?m)^worktree $([regex]::Escape($root))\r?$") { throw 'GitUnverified' }
     $registration = @($registrations | Where-Object { $_ -match "(?m)^worktree $([regex]::Escape($root))\r?$" })
-    if ($registration.Count -eq 1 -and $registration[0] -match '(?m)^locked(?: |\r?$)') { throw 'WorktreeLocked' }
+    if (-not $Force -and $registration.Count -eq 1 -and $registration[0] -match '(?m)^locked(?: |\r?$)') { throw 'WorktreeLocked' }
     if ($registration.Count -ne 1 -or $registration[0] -match '(?m)^(prunable|bare|detached)' -or
         $registration[0] -notmatch "(?m)^HEAD $head\r?$" -or
         $registration[0] -notmatch "(?m)^branch $([regex]::Escape($branch))\r?$") { throw 'GitUnverified' }
     # Local file protection is delegated to Orca's guarded removal and archive hooks.
-    if ((Invoke-ReapGit @('ls-files', '--stage')) -match '(?m)^160000 ') { throw 'GitUnverified' }
+    if (-not $Force -and (Invoke-ReapGit @('ls-files', '--stage')) -match '(?m)^160000 ') { throw 'GitUnverified' }
     # Stashes are repository-wide and survive linked-worktree removal; they do not gate it.
     # Commit ancestry, reflogs, and remote/base refs deliberately do not gate removal.
     # Detect concurrent Git changes during the above checks.

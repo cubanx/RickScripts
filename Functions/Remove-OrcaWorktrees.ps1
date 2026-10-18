@@ -6,6 +6,11 @@ function Remove-OrcaWorktrees {
     Default age is strictly greater than 14 days since lastActivityAt (not a sleep timestamp).
     By default, only eligible candidates are shown, then deletion requires confirmation.
     -All shows every worktree and never offers or performs deletion. Use -WhatIf to preview.
+    -Pick opens an fzf multi-select picker for local non-main worktrees. Selected
+    worktrees are force-removed regardless of age, activity, pins, children, locks or
+    archive-hook failure. Active processes and local files may be lost. Associated
+    local/origin branches are deleted even if unmerged. Exact identity, primary-branch
+    protection, confirmation and -WhatIf still apply. Escape cancels without changes.
     -Confirm:$false explicitly skips the deletion prompt. Confirmed missing
     directories are deregistered without an age/Git gate, with a conditional archive-hook
     waiver. Existing directories never receive that waiver. -Force passes --force to Orca;
@@ -15,7 +20,7 @@ function Remove-OrcaWorktrees {
     protected, changed, or unverifiable branches are retained. Missing checkouts use
     an inventoried local main checkout to verify Git identity when available.
     BranchCleanup reports outcomes separately from worktree removal; -Force never forces
-    branch deletion.
+    branch deletion outside -Pick mode.
     Returns one structured summary. Uses Spectre.Console when available, otherwise plain
     output. Use -Spectre:$false to disable rich output. Requires PowerShell 7 and a running
     local Orca runtime. Git-locked worktrees are kept and shown with a lock icon.
@@ -29,6 +34,9 @@ function Remove-OrcaWorktrees {
     .EXAMPLE
     Remove-OrcaWorktrees -Force -WhatIf
     .EXAMPLE
+    Remove-OrcaWorktrees -Pick -WhatIf
+    Select worktrees and preview forced removal without making changes.
+    .EXAMPLE
     Remove-OrcaWorktrees -Unlock
     Select locked local Orca worktrees with fzf and unlock them. Never removes worktrees.
     #>
@@ -36,6 +44,7 @@ function Remove-OrcaWorktrees {
     param(
         [Parameter(ParameterSetName = 'Cleanup')][ValidateRange(1, 36500)][int]$InactiveDays = 14,
         [Parameter(ParameterSetName = 'Cleanup')][switch]$Force,
+        [Parameter(ParameterSetName = 'Cleanup')][switch]$Pick,
         [Parameter(ParameterSetName = 'Cleanup')][switch]$All,
         [Parameter(ParameterSetName = 'Cleanup')][switch]$Spectre = $true,
         [Parameter(Mandatory, ParameterSetName = 'Unlock')][switch]$Unlock,
@@ -45,6 +54,7 @@ function Remove-OrcaWorktrees {
     )
     if ($PSVersionTable.PSVersion.Major -lt 7) { throw 'Remove-OrcaWorktrees requires PowerShell 7 or newer.' }
     $unlockMode = $PSCmdlet.ParameterSetName -eq 'Unlock'
+    if ($Pick -and $All) { throw '-Pick cannot be combined with -All.' }
     # Resolve the optional renderer before any inspection or destructive operation.
     $useSpectre = [bool]$Spectre
     if ($useSpectre -and -not $unlockMode) {
@@ -68,10 +78,13 @@ function Remove-OrcaWorktrees {
     }
     function Get-ReapSnapshot {
         $listing = Invoke-ReapOrca @('worktree', 'list', '--limit', "$Limit")
-        $activity = Invoke-ReapOrca @('worktree', 'ps', '--limit', "$Limit")
+        $activity = if ($Pick) {
+            # Manual selection does not depend on age/activity inventory.
+            @{ _meta=$listing._meta; result=@{worktrees=@()} }
+        } else { Invoke-ReapOrca @('worktree', 'ps', '--limit', "$Limit") }
         if ($listing._meta.runtimeId -cne $activity._meta.runtimeId) { throw 'RuntimeChanged' }
         $complete = (Test-OrcaReapCoverage $listing.result 'worktrees') -and
-            (Test-OrcaReapCoverage $activity.result 'worktrees')
+            ($Pick -or (Test-OrcaReapCoverage $activity.result 'worktrees'))
         # Duplicate/missing addresses make coverage untrustworthy, even when counts match.
         $trees = @($listing.result.worktrees)
         $rows = @($activity.result.worktrees)
@@ -85,15 +98,37 @@ function Remove-OrcaWorktrees {
     function Assert-ReapIdentity {
         param($Expected, $Actual)
         foreach ($key in @('id', 'path', 'repoId', 'hostId', 'instanceId', 'head', 'branch', 'baseRef', 'lastActivityAt')) {
+            if ($Pick -and $key -eq 'lastActivityAt') { continue }
             if ($Expected[$key] -cne $Actual[$key]) { throw 'IdentityChanged' }
         }
         if ($Expected.identity.key -cne $Actual.identity.key) { throw 'IdentityChanged' }
+    }
+    function Assert-ReapPickTarget {
+        param($Tree)
+        if ($Tree.isMainWorktree -isnot [bool] -or $Tree.isMainWorktree -or
+            $Tree.hostId -cne 'local' -or $Tree.identity.executionHostId -cne 'local' -or
+            [string]::IsNullOrWhiteSpace($Tree.identity.key) -or
+            [string]::IsNullOrWhiteSpace($Tree.instanceId) -or
+            $Tree.identity.instanceId -cne $Tree.instanceId -or
+            [string]::IsNullOrWhiteSpace($Tree.repoId) -or
+            $Tree.id -cne "$($Tree.repoId)::$($Tree.path)" -or
+            -not [IO.Path]::IsPathFullyQualified([string]$Tree.path)) { throw 'IdentityUnverified' }
     }
     function Assert-ReapCandidate {
         param($Tree, $Snapshot, $Entry)
         $shown = Invoke-ReapOrca @('worktree', 'show', '--worktree', "identity:$($Tree.identity.key)")
         if ($shown._meta.runtimeId -cne $Snapshot.Listing._meta.runtimeId) { throw 'RuntimeChanged' }
         Assert-ReapIdentity $Tree $shown.result.worktree
+        if ($Pick) {
+            Assert-ReapPickTarget $shown.result.worktree
+            if ((Get-OrcaReapPathMissing -Path $Tree.path) -ne $Entry.MissingPath) { throw 'PathChanged' }
+            if (-not $Entry.MissingPath) {
+                $null = Get-OrcaReapGitSafety -Tree $shown.result.worktree -TimeoutSeconds $TimeoutSeconds -Force
+                $lock = Get-OrcaReapLockState -Path $Tree.path -TimeoutSeconds $TimeoutSeconds
+                $Entry.IsLocked = $lock.IsLocked; $Entry.LockReason = $lock.LockReason
+            }
+            return
+        }
         $rows = @($Snapshot.Activity.result.worktrees | Where-Object { $_.worktreeId -ceq $Tree.id })
         if ($rows.Count -ne 1) { throw 'ActivityUnverified' }
         $assessment = Get-OrcaReapMetadataAssessment $shown.result.worktree $rows[0] $InactiveDays
@@ -211,6 +246,8 @@ function Remove-OrcaWorktrees {
                     else { 'Removal confirmed by Orca listing' }
                 }
                 'RemovalUnverified' { 'Removal may have occurred; inspect Orca before retrying' }
+                'ManualSelection' { 'Selected for forced removal; eligibility checks bypassed' }
+                'NotSelected' { 'Not selected; no changes requested' }
                 'Eligible' {
                     if ($entry.MissingPath) { 'Missing directory; eligible for deregistration with archive-hook waiver' }
                     else { 'Passed safety checks' }
@@ -223,8 +260,8 @@ function Remove-OrcaWorktrees {
             PSTypeName = 'RickScripts.OrcaReapSummary'
             SpectreRendered = $false
             All = [bool]$All
-            InactiveDays = $InactiveDays; Force = [bool]$Force
-            Scope = 'Local execution host of selected Orca runtime only'
+            InactiveDays = $InactiveDays; Force = [bool]($Force -or $Pick); Pick = [bool]$Pick
+            Scope = 'Local Orca worktrees; associated local and origin branches'
             CoverageComplete = $coverageComplete; CoverageReason = $coverageReason
             HostIds = $hostIds; OmittedHostIds = $omittedHostIds
             CandidateCount = $candidateCount
@@ -296,6 +333,13 @@ function Remove-OrcaWorktrees {
             $results.Add($entry)
             try {
                 if (-not $coverageComplete) { throw 'IncompleteCoverage' }
+                if ($Pick) {
+                    Assert-ReapPickTarget $tree
+                    $entry.MissingPath = Get-OrcaReapPathMissing -Path $tree.path
+                    $entry.Status = 'Candidate'; $entry.Reason = 'ManualSelection'
+                    $candidates.Add([pscustomobject]@{ Tree=$tree; Entry=$entry; Display='' })
+                    continue
+                }
                 # Observe locks independently of age/activity so kept worktrees remain visible.
                 if (-not $entry.IsMainWorktree -and -not (Get-OrcaReapPathMissing -Path $tree.path)) {
                     $lock = Get-OrcaReapLockState -Path $tree.path -TimeoutSeconds $TimeoutSeconds
@@ -329,11 +373,38 @@ function Remove-OrcaWorktrees {
         }
     }
 
+    if ($Pick -and $coverageComplete -and $candidates.Count) {
+        $null = Get-Command fzf -ErrorAction Stop
+        for ($i = 0; $i -lt $candidates.Count; $i++) {
+            $candidate = $candidates[$i]
+            $candidate.Display = "$i  $($candidate.Entry.Worktree) | $($candidate.Entry.Path) | $($candidate.Tree.branch)" -replace '[\x00-\x1f\x7f-\x9f]', ''
+        }
+        $global:LASTEXITCODE = 0
+        $selected = @($candidates.Display | fzf --multi --prompt 'Remove worktrees: ' --header 'FORCED removal + unmerged local/origin branches. Tab selects; Enter continues; Esc cancels')
+        $pickerExit = $LASTEXITCODE
+        if ($pickerExit -in @(1, 130)) { $selected = @() }
+        elseif ($pickerExit -ne 0) { throw "fzf failed (exit $pickerExit)" }
+        $targets = @(
+            foreach ($label in ($selected | Select-Object -Unique)) {
+                $match = @($candidates | Where-Object { $_.Display -ceq $label })
+                if ($match.Count -ne 1) { throw 'Invalid fzf selection' }
+                $match[0]
+            }
+        )
+        foreach ($candidate in $candidates) { $candidate.Entry.Status = 'Skipped'; $candidate.Entry.Reason = 'NotSelected' }
+        $candidates.Clear()
+        foreach ($target in $targets) {
+            $target.Entry.Status = 'Candidate'; $target.Entry.Reason = 'ManualSelection'
+            $candidates.Add($target)
+        }
+        $candidateCount = $candidates.Count
+    }
     # Finish inspecting and display the selected list before requesting any mutation.
     $preview = Get-ReapSummary
     Show-ReapSummary $preview
     if ($All -or -not $coverageComplete -or $candidates.Count -eq 0) { return $preview }
-    $action = if ($Force) { 'Remove listed worktrees via Orca --force and delete merged local/origin branches (local files may be lost)' }
+    $action = if ($Pick) { 'FORCE remove selected worktrees, unlock Git locks, waive failed archive hooks, stop active work and delete UNMERGED local/origin branches (files and commits may be lost)' }
+        elseif ($Force) { 'Remove listed worktrees via Orca --force and delete merged local/origin branches (local files may be lost)' }
         else { 'Remove listed worktrees via Orca and delete merged local/origin branches (including missing-directory deregistration)' }
     if (-not (Confirm-OrcaReapRemoval -Cmdlet $PSCmdlet -Target "$($candidates.Count) eligible worktree(s)" -Action $action)) {
         foreach ($candidate in $candidates) { $candidate.Entry.Reason = 'WhatIfOrDeclined' }
@@ -383,7 +454,7 @@ function Remove-OrcaWorktrees {
                 if ($mainTrees.Count -ne 1) { throw 'BranchUnverified' }
                 $repositoryPath = $mainTrees[0].path
             }
-            $branchPlan = Get-OrcaReapBranchPlan $tree -TimeoutSeconds $TimeoutSeconds -RepositoryPath $repositoryPath
+            $branchPlan = Get-OrcaReapBranchPlan $tree -TimeoutSeconds $TimeoutSeconds -RepositoryPath $repositoryPath -Force:$Pick
         }
         catch {
             $diagnostic = Get-OrcaReapDiagnostic $_
@@ -395,8 +466,12 @@ function Remove-OrcaWorktrees {
             # Last absence check before issuing the one-shot mutation; never retry on failure.
             if ((Get-OrcaReapPathMissing -Path $tree.path) -ne $entry.MissingPath) { throw 'PathChanged' }
             $arguments = @('worktree', 'rm', '--worktree', "identity:$($tree.identity.key)", '--run-hooks')
-            if ($entry.MissingPath) { $arguments += '--allow-failed-archive-hook' }
-            if ($Force) { $arguments += '--force' }
+            if ($Pick -and $entry.IsLocked) {
+                $null = Invoke-OrcaReapCommand -Executable 'git' -Arguments @('-C', $tree.path, 'worktree', 'unlock', $tree.path) -TimeoutSeconds $TimeoutSeconds
+                if ((Get-OrcaReapLockState -Path $tree.path -TimeoutSeconds $TimeoutSeconds).IsLocked) { throw 'WorktreeLocked' }
+            }
+            if ($entry.MissingPath -or $Pick) { $arguments += '--allow-failed-archive-hook' }
+            if ($Force -or $Pick) { $arguments += '--force' }
             $removed = Invoke-ReapOrca $arguments
             if ($removed._meta.runtimeId -cne $snapshot.Listing._meta.runtimeId) { throw 'RuntimeChanged' }
             $after = Invoke-ReapOrca @('worktree', 'list', '--limit', "$Limit")
@@ -405,7 +480,7 @@ function Remove-OrcaWorktrees {
             if (@($after.result.worktrees | Where-Object { $_.id -ceq $tree.id -or $_.identity.key -ceq $tree.identity.key }).Count -gt 0) { throw 'RemovalUnverified' }
             $entry.Status = 'Deleted'; $entry.Reason = 'RemovalVerified'
             if ($branchPlan) {
-                $entry.BranchCleanup = Remove-OrcaReapBranches $branchPlan -TimeoutSeconds $TimeoutSeconds
+                $entry.BranchCleanup = Remove-OrcaReapBranches $branchPlan -TimeoutSeconds $TimeoutSeconds -Force:$Pick
             }
             if ($entry.BranchCleanup.Local -notin @('Deleted', 'Absent') -or
                 $entry.BranchCleanup.Origin -notin @('Deleted', 'Absent')) {
