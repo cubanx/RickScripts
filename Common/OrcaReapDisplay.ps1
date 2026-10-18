@@ -36,6 +36,7 @@ function Get-OrcaReapSpectreRows {
         $row.Lock = if ($entry.IsLocked -eq $true) { '[yellow]🔒[/]' }
             elseif ($entry.IsLocked -eq $false) { '—' } else { '?' }
         $row.Status = ConvertTo-OrcaReapMarkupLiteral $entry.Status
+        $row.ReasonCode = ConvertTo-OrcaReapMarkupLiteral $entry.Reason
         $row.Reason = ConvertTo-OrcaReapMarkupLiteral $entry.Explanation
         [pscustomobject]$row
     }
@@ -45,14 +46,18 @@ function Show-OrcaReapSpectre {
     param($Summary)
     $rows = @(Get-OrcaReapSpectreRows $Summary)
     if ($rows.Count -gt 0) {
-        $columns = @('Worktree', 'Age', 'Idle', 'Unpinned', 'NoKids', 'Lock', 'Ready')
-        if ($Summary.All) { $columns += 'Reason' }
+        $columns = @('Worktree', 'Age', 'Idle', 'Unpinned', 'NoKids', 'Lock', 'Ready', 'Status')
         $table = $rows | PwshSpectreConsole\Format-SpectreTable -Property $columns -AllowMarkup -ErrorAction Stop
         # Emoji need two cells; prevent narrow-terminal wrapping inside check cells.
         foreach ($column in $table.Columns) { $column.NoWrap = $true }
         # The adapter can return rendered strings when called inside a pipeline.
         # Route those to the host too, never the cmdlet's structured success stream.
         $table | PwshSpectreConsole\Out-SpectreHost -ErrorAction Stop | ForEach-Object { Write-Host $_ }
+        # Keep explanations outside the table so narrow terminals cannot truncate
+        # the actionable outcome. All controls inventory, never diagnostic visibility.
+        foreach ($row in $rows) {
+            PwshSpectreConsole\Write-SpectreHost "$($row.Worktree): $($row.Status) ($($row.ReasonCode)) — $($row.Reason)" -ErrorAction Stop
+        }
     }
     else {
         $message = if ($Summary.CoverageComplete) { 'No eligible worktrees. Use -All to inspect every worktree.' }

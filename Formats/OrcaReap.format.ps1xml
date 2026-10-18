@@ -28,12 +28,12 @@
                       @{Name='Unpinned'; Expression={if ($_.Checks.Unpinned -eq $true) {'✅'} else {'❌'}}},
                       @{Name='NoKids'; Expression={if ($_.Checks.NoChildren -eq $true) {'✅'} else {'❌'}}},
                       @{Name='Lock'; Expression={if ($_.IsLocked -eq $true) {'🔒'} elseif ($_.IsLocked -eq $false) {'—'} else {'?'}}},
-                      @{Name='Ready'; Expression={if ($_.Checks.Ready -eq $true) {'✅'} else {'❌'}}} |
+                      @{Name='Ready'; Expression={if ($_.Checks.Ready -eq $true) {'✅'} else {'❌'}}}, Status |
                       Format-Table -AutoSize -Wrap | Out-String -Width 80
                     $lines.Add('')
                     $lines.Add($table.Trim())
-                    if ($summary.All) {
-                      foreach ($row in $rows) { $lines.Add("$($row.Worktree): $($row.Explanation)") }
+                    foreach ($row in $rows) {
+                      $lines.Add("$($row.Worktree): $($row.Status) ($($row.Reason)) — $($row.Explanation)")
                     }
                   }
                   if ($rows.Count -eq 0 -and $summary.CoverageComplete) { $lines.Add('No eligible worktrees. Use -All to inspect every worktree.') }

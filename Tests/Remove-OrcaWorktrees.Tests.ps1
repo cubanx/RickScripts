@@ -1244,7 +1244,9 @@ Describe 'Orca reap Spectre presentation' {
         }
         Mock 'PwshSpectreConsole\Write-SpectreHost' {}
         @(Show-OrcaReapSpectre $summary).Count | Should -Be 0
-        Should -Invoke 'PwshSpectreConsole\Write-SpectreHost' -Times 0 -Exactly
+        Should -Invoke 'PwshSpectreConsole\Write-SpectreHost' -Times 1 -Exactly -ParameterFilter {
+            $Message -match 'Skipped \(ActiveResources\)' -and $Message -match 'Literal \[\[green\]\]text\[\[/\]\]'
+        }
         $summary | Add-Member -NotePropertyName All -NotePropertyValue $true
         @(Show-OrcaReapSpectre $summary).Count | Should -Be 0
         $summary.Results=@()
