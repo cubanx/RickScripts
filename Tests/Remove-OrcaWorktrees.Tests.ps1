@@ -74,7 +74,8 @@ Describe 'Remove-OrcaWorktrees safety workflow' {
                 'worktree show *' {
                     $script:ShowCount++
                     if ($script:ShowCount -gt 1 -and $script:Change) { & $script:Change }
-                    @{ worktree = $script:Tree }
+                    $key = $Arguments[3] -creplace '^identity:', ''
+                    @{ worktree = @(@($script:Tree) + $script:ExtraTrees | Where-Object { $_.identity.key -ceq $key })[0] }
                 }
                 'terminal list *' { @{ terminals = $script:TerminalRows; hostScope = $script:Scope; totalCount = $script:TerminalRows.Count; truncated = $false } }
                 'tab list *' { @{ tabs = $script:Tabs } }
@@ -438,6 +439,21 @@ catch { Write-Host $_.Exception.Message; exit 3 }
         $r = Remove-OrcaWorktrees -WhatIf
         $r.CandidateCount | Should -Be 1
         @($script:Calls | Where-Object { $_ -like 'tab list *' }) | Should -Be @('tab list --worktree all --json')
+    }
+    It 'shares one global tab inventory across all candidates during inspection' {
+        $rom = [ordered]@{}
+        foreach ($key in $script:Tree.Keys) { $rom[$key] = $script:Tree[$key] }
+        $rom.id = 'ds9::/tmp/rom'; $rom.path = '/tmp/rom'; $rom.instanceId = 'rom-2'
+        $rom.identity = @{key='wt2:local:rom-2'; executionHostId='local'; instanceId='rom-2'}
+        $romActivity = [ordered]@{}
+        foreach ($key in $script:Activity.Keys) { $romActivity[$key] = $script:Activity[$key] }
+        $romActivity.worktreeId = $rom.id; $romActivity.path = $rom.path; $romActivity.worktreeInstanceId = 'rom-2'
+        $script:ExtraTrees = @($rom); $script:ExtraActivity = @($romActivity)
+        $script:Tabs = @(@{ browserPageId='rom-page'; worktreeId=$rom.id })
+        $r = Remove-OrcaWorktrees -WhatIf
+        $r.CandidateCount | Should -Be 1
+        $r.Results[1].Reason | Should -Be 'ActiveResources'
+        @($script:Calls | Where-Object { $_ -like 'tab list *' }).Count | Should -Be 1
     }
     It 'blocks tabs associated with the exact candidate worktree' {
         $script:PathMissing = $true

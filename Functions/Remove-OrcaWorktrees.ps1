@@ -122,7 +122,7 @@ function Remove-OrcaWorktrees {
             -not [IO.Path]::IsPathFullyQualified([string]$Tree.path)) { throw 'IdentityUnverified' }
     }
     function Assert-ReapCandidate {
-        param($Tree, $Snapshot, $Entry)
+        param($Tree, $Snapshot, $Entry, $Tabs)
         $shown = Invoke-ReapOrca @('worktree', 'show', '--worktree', "identity:$($Tree.identity.key)")
         if ($shown._meta.runtimeId -cne $Snapshot.Listing._meta.runtimeId) { throw 'RuntimeChanged' }
         Assert-ReapIdentity $Tree $shown.result.worktree
@@ -153,8 +153,9 @@ function Remove-OrcaWorktrees {
         if (-not (Test-OrcaReapCoverage $terminals.result 'terminals')) { throw 'IncompleteCoverage' }
         if ($terminals.result.terminals.Count -ne 0) { throw 'ActiveResources' }
         # Scoped tab queries hang for absent checkouts. The global inventory carries
-        # exact worktree IDs; refresh it on every candidate validation, including recheck.
-        $tabs = Invoke-ReapOrca @('tab', 'list', '--worktree', 'all')
+        # exact worktree IDs. It takes ~8s, so inspection shares one copy ($Tabs);
+        # post-confirmation recheck omits $Tabs and refreshes per candidate.
+        $tabs = if ($Tabs) { $Tabs } else { Invoke-ReapOrca @('tab', 'list', '--worktree', 'all') }
         if ($tabs._meta.runtimeId -cne $shown._meta.runtimeId) { throw 'RuntimeChanged' }
         if ($tabs.result.tabs -isnot [array]) { throw 'ActiveResources' }
         foreach ($tab in $tabs.result.tabs) {
@@ -324,7 +325,7 @@ function Remove-OrcaWorktrees {
     $candidates = [System.Collections.Generic.List[object]]::new()
     $results = [System.Collections.Generic.List[object]]::new()
     $candidateCount = 0; $coverageComplete = $false; $coverageReason = 'IncompleteCoverage'
-    $hostIds = @(); $omittedHostIds = @(); $snapshot = $null
+    $hostIds = @(); $omittedHostIds = @(); $snapshot = $null; $inspectionTabs = $null
     try {
         $snapshot = Get-ReapSnapshot
         $hostIds = @($snapshot.Listing.result.hostScope.hostIds)
@@ -383,7 +384,8 @@ function Remove-OrcaWorktrees {
                 if (-not $entry.MissingPath) {
                     Assert-OrcaReapMetadata $tree $rows[0] $InactiveDays ([DateTimeOffset]::UtcNow)
                 }
-                Assert-ReapCandidate $tree $snapshot $entry
+                if (-not $inspectionTabs) { $inspectionTabs = Invoke-ReapOrca @('tab', 'list', '--worktree', 'all') }
+                Assert-ReapCandidate $tree $snapshot $entry $inspectionTabs
                 $entry.Checks.Ready = $true
                 $candidateCount++
                 $entry.Status = 'Candidate'; $entry.Reason = 'Eligible'
