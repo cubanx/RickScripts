@@ -40,8 +40,6 @@
         'Switch-GitWorktree',
         'Remove-StaleCodexWorktree',
         'Repair-UnsignedCommits',
-        'Move-JiraItemToBoard',
-        'Show-JiraBoard',
         'Save-DotfilesChanges',
         'Close-CompletedOpenSpec',
         'Invoke-SuperPush',
@@ -51,7 +49,7 @@
     )
     
     # Aliases to export from this module
-    AliasesToExport = @('sb', 'smr', 'rlb', 'cnm', 'opf', 'cmr', 'ggs', 'rhi', 'rhd', 'mis', 'ivs', 'ae1p', 'ge1p', 'nca', 'ivsuite', 'amr', 'glr', 'ec', 'sgw', 'rcw', 'jmib', 'sjb', 'sdf', 'yeet', 'wpr', 'goss')
+    AliasesToExport = @('sb', 'smr', 'rlb', 'cnm', 'opf', 'cmr', 'ggs', 'rhi', 'rhd', 'mis', 'ivs', 'ae1p', 'ge1p', 'nca', 'ivsuite', 'amr', 'glr', 'ec', 'sgw', 'rcw', 'sdf', 'yeet', 'wpr', 'goss')
     
     # Variables to export from this module
     VariablesToExport = @('mem', 'gl', 'pro', 'auth', 'petl')
