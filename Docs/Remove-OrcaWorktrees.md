@@ -75,12 +75,7 @@ For existing directories, the following **all** must be established:
 - `worktree ps` reports `status = inactive`, `liveTerminalCount = 0`,
   `hasAttachedPty = false`, and `hasHostSidebarActivity = false`.
 - Not main, pinned, bare, currently active, or carrying child worktrees/agent activity.
-  A separate complete terminal listing must be empty; associated browser tabs must also
-  be absent. Browser checks use `orca tab list --worktree all`, matched by exact worktree
-  ID and refreshed during each candidate validation and pre-removal revalidation.
-  Per-worktree tab queries are avoided because they hang for absent directories.
-  Malformed/unassignable tab records and runtime drift block removal; tabs associated
-  with other worktrees do not.
+  A separate complete terminal listing must be empty. Browser tabs are not checked.
 - Stable Orca instance identity, path, host, branch, HEAD, base, and timestamp match the
   listing and `show`. The checkout is registered in Git, not main/locked/prunable/detached.
 - Submodules still block removal; repository-wide stashes do not. Git registration, current HEAD/branch,
@@ -109,7 +104,7 @@ made. Checks cover Orca-visible resources, not arbitrary external processes usin
 Confirmed missing directories are candidates for deregistration on every run, regardless
 of age or missing/invalid activity timestamps. No Git inspection is attempted for an absent
 checkout. Identity and matching activity metadata, local scope, inactivity, protection flags,
-no children, complete terminal listings, and empty browser-tab listings are still required.
+no children, and complete terminal listings are still required.
 Main, pinned, bare, active, or unverifiable entries are never eligible. Missing-directory
 deregistration requires the same batch approval; `-All` only reports these candidates.
 
@@ -182,7 +177,7 @@ Spectre shows recent ages in yellow. This is presentation only; no eligibility c
 **✅ means passed; ❌ means blocked OR not yet verified. All green means eligible under
 these criteria, not proof that commits are preserved.** Missing-directory cleanup can be
 ready without a green Age cell, as described above.
-`Idle` alone does not prove the separate terminal/browser checks; `Ready` requires those
+`Idle` alone does not prove the separate terminal checks; `Ready` requires those
 checks too. Cheap metadata checks are independent: a pinned row can show both Unpinned
 and NoKids red. There is no Files check or local-file force-hint collection.
 Eligibility is still revalidated immediately before removal; a preview is not a future

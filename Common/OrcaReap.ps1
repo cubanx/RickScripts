@@ -136,7 +136,7 @@ function Get-OrcaReapDiagnostic {
     # Operation comes from the cmdlet's own argument list, not provider messages.
     $reason = $ErrorRecord.Exception.Message
     $operation = $ErrorRecord.Exception.Data['OrcaOperation']
-    if ($operation -cin @('worktree rm', 'worktree list', 'worktree show', 'worktree ps', 'terminal list', 'tab list') -and
+    if ($operation -cin @('worktree rm', 'worktree list', 'worktree show', 'worktree ps', 'terminal list') -and
         $reason -match '^CommandExit:-?\d+$') {
         $code = $ErrorRecord.Exception.Data['OrcaErrorCode']
         if ($code -is [string] -and $code -cmatch '^[a-z][a-z0-9_]{0,79}$') {

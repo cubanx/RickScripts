@@ -40,7 +40,7 @@ BeforeAll {
         $script:Truncated = $false; $script:Total = 1
         $script:ExtraTrees = @(); $script:ExtraActivity = @()
         $script:Calls = @(); $script:ShowCount = 0; $script:Change = $null
-        $script:BadJson = $false; $script:RemoveFailure = $false; $script:Tabs = @()
+        $script:BadJson = $false; $script:RemoveFailure = $false
         $script:GitSafe = $true; $script:Removed = $false
         $script:PathMissing = $false; $script:KeepRemovedListed = $false; $script:TerminalRows = @(); $script:Runtime = 'ds9-runtime'
     }
@@ -78,7 +78,6 @@ Describe 'Remove-OrcaWorktrees safety workflow' {
                     @{ worktree = @(@($script:Tree) + $script:ExtraTrees | Where-Object { $_.identity.key -ceq $key })[0] }
                 }
                 'terminal list *' { @{ terminals = $script:TerminalRows; hostScope = $script:Scope; totalCount = $script:TerminalRows.Count; truncated = $false } }
-                'tab list *' { @{ tabs = $script:Tabs } }
                 'worktree rm *' {
                     if ($script:RemoveFailure) { throw 'CommandExit:17' }
                     $script:Removed = $true
@@ -246,7 +245,6 @@ function Invoke-OrcaReapCommand {
         'worktree ps' { @{worktrees=@($f.Activity); hostScope=$f.Scope; totalCount=1; truncated=$false} }
         'worktree show' { @{worktree=$f.Tree} }
         'terminal list' { @{terminals=@(); hostScope=$f.Scope; totalCount=0; truncated=$false} }
-        'tab list' { @{tabs=@()} }
         'worktree rm' { Set-Content $Marker 'unexpected removal'; throw 'Removal requested' }
         default { throw 'Unexpected command' }
     }
@@ -434,64 +432,6 @@ catch { Write-Host $_.Exception.Message; exit 3 }
         @($script:Calls | Where-Object { $_ -like 'worktree rm *' }) | Should -Be @('worktree rm --worktree identity:wt2:local:quark-1 --run-hooks --allow-failed-archive-hook --json')
         Should -Invoke Get-OrcaReapGitSafety -Times 0 -Exactly
     }
-    It 'uses the global browser inventory instead of the hanging per-worktree query' {
-        $script:PathMissing = $true
-        $r = Remove-OrcaWorktrees -WhatIf
-        $r.CandidateCount | Should -Be 1
-        @($script:Calls | Where-Object { $_ -like 'tab list *' }) | Should -Be @('tab list --worktree all --json')
-    }
-    It 'shares one global tab inventory across all candidates during inspection' {
-        $rom = [ordered]@{}
-        foreach ($key in $script:Tree.Keys) { $rom[$key] = $script:Tree[$key] }
-        $rom.id = 'ds9::/tmp/rom'; $rom.path = '/tmp/rom'; $rom.instanceId = 'rom-2'
-        $rom.identity = @{key='wt2:local:rom-2'; executionHostId='local'; instanceId='rom-2'}
-        $romActivity = [ordered]@{}
-        foreach ($key in $script:Activity.Keys) { $romActivity[$key] = $script:Activity[$key] }
-        $romActivity.worktreeId = $rom.id; $romActivity.path = $rom.path; $romActivity.worktreeInstanceId = 'rom-2'
-        $script:ExtraTrees = @($rom); $script:ExtraActivity = @($romActivity)
-        $script:Tabs = @(@{ browserPageId='rom-page'; worktreeId=$rom.id })
-        $r = Remove-OrcaWorktrees -WhatIf
-        $r.CandidateCount | Should -Be 1
-        $r.Results[1].Reason | Should -Be 'ActiveResources'
-        @($script:Calls | Where-Object { $_ -like 'tab list *' }).Count | Should -Be 1
-    }
-    It 'blocks tabs associated with the exact candidate worktree' {
-        $script:PathMissing = $true
-        $script:Tabs = @(@{ browserPageId='odo-page'; worktreeId=$script:Tree.id })
-        $r = Remove-OrcaWorktrees -Confirm:$false
-        $r.Results[0].Reason | Should -Be 'ActiveResources'
-        $script:Removed | Should -BeFalse
-    }
-    It 'does not let tabs on unrelated worktrees block cleanup' {
-        $script:PathMissing = $true
-        $script:Tabs = @(@{ browserPageId='rom-page'; worktreeId='ds9::/tmp/quark-other' })
-        $r = Remove-OrcaWorktrees -WhatIf
-        $r.CandidateCount | Should -Be 1
-        $r.Results[0].Checks.Ready | Should -BeTrue
-        $script:Removed | Should -BeFalse
-    }
-    It 'fails closed on unassignable global tab records: <Kind>' -ForEach @(
-        @{ Kind='missing' }; @{ Kind='blank' }; @{ Kind='scalar' }; @{ Kind='null-inventory' }
-    ) {
-        $script:PathMissing = $true
-        $script:Tabs = switch ($Kind) {
-            missing { ,@{browserPageId='odo-page'} }
-            blank { ,@{browserPageId='odo-page';worktreeId=' '} }
-            scalar { ,42 }
-            null-inventory { $null }
-        }
-        $r = Remove-OrcaWorktrees -Confirm:$false
-        $r.Results[0].Reason | Should -Be 'ActiveResources'
-        $script:Removed | Should -BeFalse
-    }
-    It 'refreshes global tabs during revalidation and blocks newly opened tabs' {
-        $script:PathMissing = $true
-        $script:Change = { $script:Tabs = @(@{browserPageId='odo-page';worktreeId=$script:Tree.id}) }
-        $r = Remove-OrcaWorktrees -Confirm:$false
-        $r.Results[0].Reason | Should -Be 'ActiveResources'
-        @($script:Calls | Where-Object { $_ -eq 'tab list --worktree all --json' }).Count | Should -Be 2
-        $script:Removed | Should -BeFalse
-    }
     It 'runs scripts only for normal cleanup: <Mode>, missing=<Missing>' -ForEach @(
         @{Mode='Normal'; Force=$false; Pick=$false; Missing=$false}
         @{Mode='Normal'; Force=$false; Pick=$false; Missing=$true}
@@ -568,7 +508,7 @@ catch { Write-Host $_.Exception.Message; exit 3 }
     }
     It 'retains protections for missing entries: <Kind>' -ForEach @(
         @{ Kind='main' }; @{ Kind='pinned' }; @{ Kind='children' }; @{ Kind='terminal' }
-        @{ Kind='tab' }; @{ Kind='active' }; @{ Kind='identity' }; @{ Kind='coverage' }
+        @{ Kind='active' }; @{ Kind='identity' }; @{ Kind='coverage' }
     ) {
         $script:PathMissing = $true
         switch ($Kind) {
@@ -576,7 +516,6 @@ catch { Write-Host $_.Exception.Message; exit 3 }
             pinned { $script:Tree.isPinned = $true }
             children { $script:Tree.childWorktreeIds = @('ds9::/tmp/rom') }
             terminal { $script:TerminalRows = @(@{handle='odo'}) }
-            tab { $script:Tabs = @(@{browserPageId='odo'}) }
             active { $script:Activity.isActive = $true }
             identity { $script:Tree.instanceId = 'rom-2' }
             coverage { $script:Truncated = $true }
@@ -917,10 +856,8 @@ catch { Write-Host $_.Exception.Message; exit 3 }
         $script:Activity.Remove('hasAttachedPty')
         (Remove-OrcaWorktrees).SkippedCount | Should -Be 1
     }
-    It 'excludes browser resources and unsafe Git' {
-        $script:Tabs = @(@{browserPageId='quark-browser'})
-        (Remove-OrcaWorktrees).CandidateCount | Should -Be 0
-        $script:Tabs = @(); $script:GitSafe = $false
+    It 'excludes unsafe Git' {
+        $script:GitSafe = $false
         (Remove-OrcaWorktrees).CandidateCount | Should -Be 0
     }
     It 'blocks removal for partial scope or truncated/count-mismatched coverage: <Kind>' -ForEach @(

@@ -122,7 +122,7 @@ function Remove-OrcaWorktrees {
             -not [IO.Path]::IsPathFullyQualified([string]$Tree.path)) { throw 'IdentityUnverified' }
     }
     function Assert-ReapCandidate {
-        param($Tree, $Snapshot, $Entry, $Tabs)
+        param($Tree, $Snapshot, $Entry)
         $shown = Invoke-ReapOrca @('worktree', 'show', '--worktree', "identity:$($Tree.identity.key)")
         if ($shown._meta.runtimeId -cne $Snapshot.Listing._meta.runtimeId) { throw 'RuntimeChanged' }
         Assert-ReapIdentity $Tree $shown.result.worktree
@@ -152,17 +152,6 @@ function Remove-OrcaWorktrees {
         if ($terminals._meta.runtimeId -cne $shown._meta.runtimeId) { throw 'RuntimeChanged' }
         if (-not (Test-OrcaReapCoverage $terminals.result 'terminals')) { throw 'IncompleteCoverage' }
         if ($terminals.result.terminals.Count -ne 0) { throw 'ActiveResources' }
-        # Scoped tab queries hang for absent checkouts. The global inventory carries
-        # exact worktree IDs. It takes ~8s, so inspection shares one copy ($Tabs);
-        # post-confirmation recheck omits $Tabs and refreshes per candidate.
-        $tabs = if ($Tabs) { $Tabs } else { Invoke-ReapOrca @('tab', 'list', '--worktree', 'all') }
-        if ($tabs._meta.runtimeId -cne $shown._meta.runtimeId) { throw 'RuntimeChanged' }
-        if ($tabs.result.tabs -isnot [array]) { throw 'ActiveResources' }
-        foreach ($tab in $tabs.result.tabs) {
-            if ($tab -isnot [System.Collections.IDictionary] -or
-                $tab.worktreeId -isnot [string] -or [string]::IsNullOrWhiteSpace($tab.worktreeId) -or
-                $tab.worktreeId -ceq $Tree.id) { throw 'ActiveResources' }
-        }
         # Fresh ps observation also covers activity that began during Git checks.
         $fresh = Invoke-ReapOrca @('worktree', 'ps', '--limit', "$Limit")
         if ($fresh._meta.runtimeId -cne $shown._meta.runtimeId) { throw 'RuntimeChanged' }
@@ -235,7 +224,7 @@ function Remove-OrcaWorktrees {
                 'ProtectedWorktree' { $entry.ProtectionReasons -join '; ' }
                 'RecentlyActive' { "Activity is not older than $InactiveDays days" }
                 'TimestampInvalid' { 'Missing, invalid, or future activity timestamp' }
-                'ActiveResources' { 'Activity, terminals, agents, or browser resources detected/unverified' }
+                'ActiveResources' { 'Activity, terminals, or agents detected/unverified' }
                 'GitUnverified' { 'Git registration, branch, or submodule safety unverified' }
                 'WorktreeLocked' { 'Git worktree is locked; use -Unlock to select worktrees to unlock' }
                 'IdentityUnverified' { 'Local worktree identity or path unverified' }
@@ -325,7 +314,7 @@ function Remove-OrcaWorktrees {
     $candidates = [System.Collections.Generic.List[object]]::new()
     $results = [System.Collections.Generic.List[object]]::new()
     $candidateCount = 0; $coverageComplete = $false; $coverageReason = 'IncompleteCoverage'
-    $hostIds = @(); $omittedHostIds = @(); $snapshot = $null; $inspectionTabs = $null
+    $hostIds = @(); $omittedHostIds = @(); $snapshot = $null
     try {
         $snapshot = Get-ReapSnapshot
         $hostIds = @($snapshot.Listing.result.hostScope.hostIds)
@@ -384,8 +373,7 @@ function Remove-OrcaWorktrees {
                 if (-not $entry.MissingPath) {
                     Assert-OrcaReapMetadata $tree $rows[0] $InactiveDays ([DateTimeOffset]::UtcNow)
                 }
-                if (-not $inspectionTabs) { $inspectionTabs = Invoke-ReapOrca @('tab', 'list', '--worktree', 'all') }
-                Assert-ReapCandidate $tree $snapshot $entry $inspectionTabs
+                Assert-ReapCandidate $tree $snapshot $entry
                 $entry.Checks.Ready = $true
                 $candidateCount++
                 $entry.Status = 'Candidate'; $entry.Reason = 'Eligible'
