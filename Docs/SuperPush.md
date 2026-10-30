@@ -36,7 +36,7 @@ Invoke-SuperPush
 ```
 
 The no-argument cmdlet skips typed confirmation only for text documentation
-under `docs/` or `openspec/`, or the existing root
+under `docs/`, or the existing root
 README/CHANGELOG/CONTRIBUTING/SECURITY/LICENSE names. Every outgoing commit is
 checked, so code added and later reverted is not treated as docs-only.
 `AGENTS.md`, binary files, symlinks, submodules, code and merge commits take the

@@ -51,9 +51,6 @@ BeforeAll {
             'ls-remote --symref origin HEAD' { return @("ref: refs/heads/main`tHEAD", "0123456789abcdef`tHEAD") }
             'branch --show-current' { return $script:CurrentBranch }
             'status --porcelain' {
-                if ($script:Scenario -in @('openspec-only', 'openspec-with-committed-code')) { return '?? openspec/changes/add-daily-dash-renewals/proposal.md' }
-                if ($script:Scenario -eq 'mixed-openspec') { return @('?? openspec/changes/add-daily-dash-renewals/proposal.md', ' M Functions/Publish-GitChanges.ps1') }
-                if ($script:Scenario -eq 'multiple-openspec') { return @('?? openspec/changes/add-daily-dash-renewals/proposal.md', '?? openspec/changes/add-other-change/proposal.md') }
                 if ($script:Scenario -notin @('clean', 'clean-existing-pr')) { return @(' M changed.ps1', '?? new.ps1') }
                 return
             }
@@ -173,69 +170,6 @@ Describe 'Publish-GitChanges' {
             $script:LastBody | Should -Match ([regex]::Escape($section))
         }
         $script:LastBodyPath | Should -Not -Exist
-    }
-
-    It 'uses deterministic metadata for a single OpenSpec change on the default branch' {
-        $script:Scenario = 'openspec-only'
-        $proposalPath = Join-Path $script:RepositoryRoot 'openspec/changes/add-daily-dash-renewals/proposal.md'
-        try {
-            New-Item -ItemType Directory -Path (Split-Path -Parent $proposalPath) -Force | Out-Null
-            @'
-## Why
-
-Daily renewal signals are hard to spot.
-
-## What Changes
-
-- Add a daily renewal dashboard.
-
-## Impact
-
-- Account teams get a focused renewal view.
-'@ | Set-Content -LiteralPath $proposalPath -Encoding UTF8
-
-            $result = Publish-GitChanges
-
-            $result.Branch | Should -Be 'dw/add-daily-dash-renewals'
-            $result.Title | Should -Be '[dw-#42] Add daily dash renewals OpenSpec'
-            $script:Calls | Should -Contain 'git commit -m docs: add daily dash renewals OpenSpec'
-            @($script:Calls | Where-Object { $_ -like 'codex *' }).Count | Should -Be 0
-            foreach ($bodyText in @('Daily renewal signals are hard to spot.', '- Add a daily renewal dashboard.', '- Account teams get a focused renewal view.', 'Not run by yeet.')) {
-                $script:LastBody | Should -Match ([regex]::Escape($bodyText))
-            }
-            $script:LastBody | Should -Not -Match 'specification-only|Capture the proposed change'
-        }
-        finally {
-            Remove-Item -LiteralPath (Split-Path -Parent $script:RepositoryRoot) -Recurse -Force
-        }
-    }
-
-    It 'summarizes the complete PR when only OpenSpec files remain dirty on a feature branch' {
-        $script:Scenario = 'openspec-with-committed-code'
-        $script:CurrentBranch = 'dw/implemented-change'
-
-        $result = Publish-GitChanges
-
-        @($script:Calls | Where-Object { $_ -like 'codex *' }).Count | Should -Be 1
-        $result.Branch | Should -Be 'dw/implemented-change'
-    }
-
-    It 'uses Codex for mixed OpenSpec changes' {
-        $script:Scenario = 'mixed-openspec'
-
-        $result = Publish-GitChanges
-
-        @($script:Calls | Where-Object { $_ -like 'codex *' }).Count | Should -Be 1
-        $result.Branch | Should -Be 'dw/publish-git-changes'
-    }
-
-    It 'uses Codex for multiple OpenSpec changes' {
-        $script:Scenario = 'multiple-openspec'
-
-        $result = Publish-GitChanges
-
-        @($script:Calls | Where-Object { $_ -like 'codex *' }).Count | Should -Be 1
-        $result.Branch | Should -Be 'dw/publish-git-changes'
     }
 
     It 'retains the current feature branch' {

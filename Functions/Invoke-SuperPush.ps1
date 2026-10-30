@@ -440,7 +440,6 @@ function Test-SuperPushDocumentationOnly {
             $path -match '[\x00-\x1F\x7F]' -or $path -imatch '(^|/)AGENTS\.md$') { return $false }
 
         $documentPath = $path -cmatch '^docs/.+' -or
-            $path -cmatch '^openspec/.+' -or
             $path -cmatch '^(README|CHANGELOG|CONTRIBUTING|SECURITY|LICENSE)(?:\.[A-Za-z0-9][A-Za-z0-9._-]*)?(?:-[A-Za-z0-9][A-Za-z0-9._-]*)?$'
         if (-not $documentPath) { return $false }
         $count++

@@ -41,9 +41,7 @@
         'Remove-StaleCodexWorktree',
         'Repair-UnsignedCommits',
         'Save-DotfilesChanges',
-        'Close-CompletedOpenSpec',
         'Invoke-SuperPush',
-        'Get-OpenSpecStatus',
         'Add-TemporaryAtlasIpAccess',
         'Remove-TemporaryAtlasIpAccess'
     )
