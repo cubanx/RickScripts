@@ -91,7 +91,7 @@ The module follows PowerShell best practices:
 - `New-CalendarEvent` - Create calendar events programmatically
 
 ### GitHub Publishing
-`Publish-GitChanges` uses `git add -A`, then checks and displays the staged diff before committing and pushing. It creates a draft PR by default (`-Ready` opts out), or updates an open PR on the current feature branch without creating or retitling it; an open PR for another branch stops safely. A single OpenSpec-only change uses deterministic branch, commit, title, and body metadata without invoking Codex.
+`Publish-GitChanges` uses `git add -A`, then checks and displays the staged diff before committing and pushing. It creates a draft PR by default (`-Ready` opts out), or updates an open PR on the current feature branch without creating or retitling it; an open PR for another branch stops safely.
 
 ### Environment Files Structure
 The module includes an `Env/` subdirectory containing:

@@ -19,7 +19,6 @@ prefix_rule(pattern=["/bin/zsh", "-lc", "glab mr view -F json > /tmp/glab-mr.jso
 prefix_rule(pattern=["glab", "mr", "edit", "--help"], decision="allow")
 prefix_rule(pattern=["glab", "mr", "update", "--help"], decision="allow")
 prefix_rule(pattern=["/bin/zsh", "-lc", "glab mr update -d \"$(cat /tmp/glab-mr-description.txt)\" -y"], decision="allow")
-prefix_rule(pattern=["git", "add", ".github", "docs", "openspec/changes/mirror-ci-to-github-actions/tasks.md"], decision="allow")
 prefix_rule(pattern=["gh", "run", "list", "--branch", "WOR-4-ci-github-actions", "--limit", "1"], decision="allow")
 prefix_rule(pattern=["gh", "run", "view", "21451176867", "--log"], decision="allow")
 prefix_rule(pattern=["git", "add", ".github/workflows/ci-security.yml", ".github/workflows/ci-tests.yml"], decision="allow")

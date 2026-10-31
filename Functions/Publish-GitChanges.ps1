@@ -18,23 +18,6 @@ function Get-GitPublishingBranchDescription {
     return ($description -replace '[^A-Za-z0-9]+', '-').Trim('-').ToLowerInvariant()
 }
 
-function Get-OpenSpecProposalSection {
-    param(
-        [Parameter(Mandatory = $true)][string]$Markdown,
-        [Parameter(Mandatory = $true)][string]$Heading
-    )
-
-    $match = [regex]::Match(
-        $Markdown,
-        "(?ms)^##\s+$([regex]::Escape($Heading))\s*\r?\n(?<Content>.*?)(?=^##\s+|\z)"
-    )
-    if (-not $match.Success -or [string]::IsNullOrWhiteSpace($match.Groups['Content'].Value)) {
-        throw "OpenSpec proposal is missing a non-empty '$Heading' section."
-    }
-
-    return $match.Groups['Content'].Value.Trim()
-}
-
 function Publish-GitChanges {
     <#
     .SYNOPSIS
@@ -44,8 +27,7 @@ function Publish-GitChanges {
     Stops before mutation when origin, GitHub, worktree checks, or an existing pull request
     for another branch are found. A pull request already open for the current feature branch
     is updated by committing and pushing without creating or retitling it. This command runs
-    git add -A, so all tracked, unstaged, and untracked changes are included. A single
-    OpenSpec-only change uses deterministic metadata and does not invoke Codex.
+    git add -A, so all tracked, unstaged, and untracked changes are included.
 
     .EXAMPLE
     Publish-GitChanges
@@ -91,34 +73,9 @@ function Publish-GitChanges {
     Write-Host "Unstaged/untracked scope: $($unstagedOrUntracked.Count) file(s)."
     $status | ForEach-Object { Write-Host "  $_" }
 
-    $changedPaths = @($status | ForEach-Object { ([string]$_).Substring(3) })
-    $openSpecChanges = @($changedPaths | ForEach-Object {
-        if ($_ -match '^openspec/changes/([^/]+)/') { $Matches[1] }
-    } | Select-Object -Unique)
-    $isOpenSpecOnly = $currentBranch -eq $defaultBranch -and $openSpecChanges.Count -eq 1 -and @($changedPaths | Where-Object { $_ -notmatch '^openspec/changes/[^/]+/' }).Count -eq 0
-    $summary = if ($isOpenSpecOnly) {
-        $changeName = $openSpecChanges[0]
-        $titleChangeName = $changeName -replace '^add-', ''
-        $humanChangeName = $titleChangeName -replace '-', ' '
-        $proposalPath = Join-Path $root "openspec/changes/$changeName/proposal.md"
-        if (-not (Test-Path -LiteralPath $proposalPath -PathType Leaf)) {
-            throw "OpenSpec proposal not found at '$proposalPath'."
-        }
-        $proposal = Get-Content -LiteralPath $proposalPath -Raw
-        [PSCustomObject]@{
-            CommitMessage = "docs: add $humanChangeName OpenSpec"
-            HumanTitle = "Add $humanChangeName OpenSpec"
-            WhatChanged = Get-OpenSpecProposalSection -Markdown $proposal -Heading 'What Changes'
-            Why = Get-OpenSpecProposalSection -Markdown $proposal -Heading 'Why'
-            Impact = Get-OpenSpecProposalSection -Markdown $proposal -Heading 'Impact'
-            Validation = 'Not run by yeet.'
-        }
-    }
-    else {
-        Get-CodexChangeSummary
-    }
+    $summary = Get-CodexChangeSummary
     if (-not $publishingBranch) {
-        $description = if ($isOpenSpecOnly) { $openSpecChanges[0] } else { Get-GitPublishingBranchDescription -CommitMessage $summary.CommitMessage }
+        $description = Get-GitPublishingBranchDescription -CommitMessage $summary.CommitMessage
         if (-not $description) { throw 'Codex commit message cannot be converted to a branch name.' }
         $publishingBranch = "$slug/$description"
     }
@@ -174,20 +131,11 @@ function Publish-GitChanges {
 
     $bodyPath = [System.IO.Path]::GetTempFileName()
     try {
-        $body = if ($isOpenSpecOnly) {
-            @(
-                '## Why', $summary.Why, '', '## What changes', $summary.WhatChanged, '',
-                '## Impact', $summary.Impact, '', '## Validation', $summary.Validation, '',
-                '## Staged diff check', 'git diff --cached --check passed.'
-            )
-        }
-        else {
-            @(
-                '## What changed', $summary.WhatChanged, '', '## Why', $summary.Why, '',
-                '## User impact', $summary.UserImpact, '', '## Developer impact', $summary.DeveloperImpact, '',
-                '## Validation', $summary.Validation, '', '## Staged diff check', 'git diff --cached --check passed.'
-            )
-        }
+        $body = @(
+            '## What changed', $summary.WhatChanged, '', '## Why', $summary.Why, '',
+            '## User impact', $summary.UserImpact, '', '## Developer impact', $summary.DeveloperImpact, '',
+            '## Validation', $summary.Validation, '', '## Staged diff check', 'git diff --cached --check passed.'
+        )
         $body | Set-Content -LiteralPath $bodyPath -Encoding UTF8
         $createArguments = @('pr', 'create', '--base', $BaseBranch, '--head', $publishingBranch, '--title', $summary.HumanTitle, '--body-file', $bodyPath)
         if (-not $Ready) { $createArguments += '--draft' }
